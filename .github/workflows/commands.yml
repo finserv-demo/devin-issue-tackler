@@ -102,12 +102,25 @@ jobs:
               --repo ${{ github.repository }} \
               --context-file /tmp/issue_context.json
 
-            # Post session link
-            session_url=$(grep 'session_url=' "$GITHUB_OUTPUT" 2>/dev/null | tail -1 | cut -d= -f2- || true)
-            if [ -n "$session_url" ]; then
+            # Check if session creation succeeded
+            created=$(grep 'session_created=' "$GITHUB_OUTPUT" 2>/dev/null | tail -1 | cut -d= -f2- || echo "false")
+            if [ "$created" = "true" ]; then
+              session_url=$(grep 'session_url=' "$GITHUB_OUTPUT" 2>/dev/null | tail -1 | cut -d= -f2- || true)
+              if [ -n "$session_url" ]; then
+                gh issue comment ${{ github.event.issue.number }} \
+                  --repo ${{ github.repository }} \
+                  --body "Devin implement session started: $session_url"
+              fi
+            else
+              # Rollback: restore devin:triaged, remove devin:implement
+              session_error=$(grep 'session_error=' "$GITHUB_OUTPUT" 2>/dev/null | tail -1 | cut -d= -f2- || true)
+              gh issue edit ${{ github.event.issue.number }} \
+                --repo ${{ github.repository }} \
+                --remove-label "devin:implement" \
+                --add-label "devin:triaged" 2>/dev/null || true
               gh issue comment ${{ github.event.issue.number }} \
                 --repo ${{ github.repository }} \
-                --body "Devin implement session started: $session_url"
+                --body "⚠️ Failed to create Devin implement session: ${session_error:-unknown error}. Labels have been restored. You can retry with \`/proceed\`."
             fi
           else
             gh issue comment ${{ github.event.issue.number }} \
@@ -201,12 +214,24 @@ jobs:
               --repo ${{ github.repository }} \
               --context-file /tmp/issue_context.json
 
-            # Post session link
-            session_url=$(grep 'session_url=' "$GITHUB_OUTPUT" 2>/dev/null | tail -1 | cut -d= -f2- || true)
-            if [ -n "$session_url" ]; then
+            # Check if session creation succeeded
+            created=$(grep 'session_created=' "$GITHUB_OUTPUT" 2>/dev/null | tail -1 | cut -d= -f2- || echo "false")
+            if [ "$created" = "true" ]; then
+              session_url=$(grep 'session_url=' "$GITHUB_OUTPUT" 2>/dev/null | tail -1 | cut -d= -f2- || true)
+              if [ -n "$session_url" ]; then
+                gh issue comment ${{ github.event.issue.number }} \
+                  --repo ${{ github.repository }} \
+                  --body "Devin triage session started: $session_url"
+              fi
+            else
+              # Rollback: remove devin:triage
+              session_error=$(grep 'session_error=' "$GITHUB_OUTPUT" 2>/dev/null | tail -1 | cut -d= -f2- || true)
+              gh issue edit ${{ github.event.issue.number }} \
+                --repo ${{ github.repository }} \
+                --remove-label "devin:triage" 2>/dev/null || true
               gh issue comment ${{ github.event.issue.number }} \
                 --repo ${{ github.repository }} \
-                --body "Devin triage session started: $session_url"
+                --body "⚠️ Failed to create Devin triage session: ${session_error:-unknown error}. The \`devin:triage\` label has been removed. You can retry with \`/triage\`."
             fi
           else
             gh issue comment ${{ github.event.issue.number }} \
@@ -269,12 +294,24 @@ jobs:
             --repo ${{ github.repository }} \
             --context-file /tmp/issue_context.json
 
-          # Post session link
-          session_url=$(grep 'session_url=' "$GITHUB_OUTPUT" 2>/dev/null | tail -1 | cut -d= -f2- || true)
-          if [ -n "$session_url" ]; then
+          # Check if session creation succeeded
+          created=$(grep 'session_created=' "$GITHUB_OUTPUT" 2>/dev/null | tail -1 | cut -d= -f2- || echo "false")
+          if [ "$created" = "true" ]; then
+            session_url=$(grep 'session_url=' "$GITHUB_OUTPUT" 2>/dev/null | tail -1 | cut -d= -f2- || true)
+            if [ -n "$session_url" ]; then
+              gh issue comment ${{ github.event.issue.number }} \
+                --repo ${{ github.repository }} \
+                --body "Devin triage session started: $session_url"
+            fi
+          else
+            # Rollback: remove devin:triage (previous session was already terminated)
+            session_error=$(grep 'session_error=' "$GITHUB_OUTPUT" 2>/dev/null | tail -1 | cut -d= -f2- || true)
+            gh issue edit ${{ github.event.issue.number }} \
+              --repo ${{ github.repository }} \
+              --remove-label "devin:triage" 2>/dev/null || true
             gh issue comment ${{ github.event.issue.number }} \
               --repo ${{ github.repository }} \
-              --body "Devin triage session started: $session_url"
+              --body "⚠️ Failed to create Devin triage session after retriage: ${session_error:-unknown error}. The previous session was already terminated. The \`devin:triage\` label has been removed. You can retry with \`/triage\` or \`/retriage\`."
           fi
 
       # ── Non-command comment (or unrecognized slash command): forward to active Devin session ──

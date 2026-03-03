@@ -71,8 +71,20 @@ jobs:
             --repo ${{ github.repository }} \
             --context-file /tmp/issue_context.json
 
+      - name: Rollback — session creation failed
+        if: steps.session.outputs.session_created == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue edit ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --remove-label "devin:triage" 2>/dev/null || true
+          gh issue comment ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --body "⚠️ Failed to create Devin triage session: ${{ steps.session.outputs.session_error }}. The \`devin:triage\` label has been removed. You can retry by adding the label again or using \`/triage\`."
+
       - name: Post session link
-        if: steps.session.outputs.session_url
+        if: steps.session.outputs.session_created == 'true' && steps.session.outputs.session_url
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -148,8 +160,20 @@ jobs:
             --repo ${{ github.repository }} \
             --context-file /tmp/issue_context.json
 
+      - name: Rollback — session creation failed
+        if: steps.check.outputs.has_active != 'true' && steps.session.outputs.session_created == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue edit ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --remove-label "devin:triage" 2>/dev/null || true
+          gh issue comment ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --body "⚠️ Failed to create Devin triage session: ${{ steps.session.outputs.session_error }}. The \`devin:triage\` label has been removed. You can retry by adding the label again or using \`/triage\`."
+
       - name: Post session link
-        if: steps.check.outputs.has_active != 'true' && steps.session.outputs.session_url
+        if: steps.check.outputs.has_active != 'true' && steps.session.outputs.session_created == 'true' && steps.session.outputs.session_url
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

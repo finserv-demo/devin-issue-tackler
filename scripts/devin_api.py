@@ -162,12 +162,18 @@ async def cmd_create_session(args: argparse.Namespace) -> None:
         f"repo:{args.repo}",
     ]
 
-    session = await client.create_session(
-        prompt=prompt,
-        playbook_id=playbook_id,
-        tags=tags,
-        max_acu_limit=acu_limit,
-    )
+    try:
+        session = await client.create_session(
+            prompt=prompt,
+            playbook_id=playbook_id,
+            tags=tags,
+            max_acu_limit=acu_limit,
+        )
+    except Exception as exc:
+        logger.error("Failed to create %s session for issue #%d: %s", args.stage, args.issue, exc)
+        _write_github_output("session_created", "false")
+        _write_github_output("session_error", str(exc))
+        return
 
     logger.info(
         "Created %s session %s for issue #%d: %s",
@@ -178,6 +184,7 @@ async def cmd_create_session(args: argparse.Namespace) -> None:
     )
 
     # Write outputs for GitHub Actions
+    _write_github_output("session_created", "true")
     _write_github_output("session_id", session.session_id)
     _write_github_output("session_url", session.url)
 

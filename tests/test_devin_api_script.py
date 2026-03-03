@@ -227,6 +227,7 @@ async def test_cmd_create_session_triage(
 
     # Verify GITHUB_OUTPUT was written
     output_content = github_output_file.read_text()
+    assert "session_created=true" in output_content
     assert "session_id=sess-test-001" in output_content
     assert "session_url=https://app.devin.ai/sessions/sess-test-001" in output_content
 
@@ -290,6 +291,109 @@ async def test_cmd_create_session_no_playbook(
 
     call_kwargs = mock_client.create_session.call_args
     assert call_kwargs.kwargs["playbook_id"] is None
+
+
+# ── cmd_create_session failure handling ──
+
+
+@pytest.mark.asyncio
+async def test_cmd_create_session_failure_writes_false(
+    context_file: Path,
+    github_output_file: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When create_session raises, session_created=false and session_error are written."""
+    monkeypatch.setenv("DEVIN_API_KEY", "cog_test")
+    monkeypatch.setenv("DEVIN_ORG_ID", "org-test")
+    monkeypatch.setenv("TRIAGE_PLAYBOOK_ID", "pb-triage-001")
+    monkeypatch.setenv("GITHUB_OUTPUT", str(github_output_file))
+
+    mock_client = AsyncMock()
+    mock_client.create_session.side_effect = RuntimeError("API rate limit exceeded")
+
+    args = FakeArgs(
+        stage="triage",
+        issue=42,
+        repo="finserv-demo/finserv",
+        context_file=str(context_file),
+    )
+
+    with patch("scripts.devin_api.get_devin_client", return_value=mock_client):
+        await cmd_create_session(args)  # should not raise
+
+    output_content = github_output_file.read_text()
+    assert "session_created=false" in output_content
+    assert "session_error=API rate limit exceeded" in output_content
+    assert "session_id=" not in output_content
+    assert "session_url=" not in output_content
+
+
+@pytest.mark.asyncio
+async def test_cmd_create_session_success_writes_true(
+    mock_devin_session: DevinSession,
+    context_file: Path,
+    github_output_file: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """On success, session_created=true is written alongside session_id and session_url."""
+    monkeypatch.setenv("DEVIN_API_KEY", "cog_test")
+    monkeypatch.setenv("DEVIN_ORG_ID", "org-test")
+    monkeypatch.setenv("TRIAGE_PLAYBOOK_ID", "pb-triage-001")
+    monkeypatch.setenv("GITHUB_OUTPUT", str(github_output_file))
+
+    mock_client = AsyncMock()
+    mock_client.create_session.return_value = mock_devin_session
+
+    args = FakeArgs(
+        stage="triage",
+        issue=42,
+        repo="finserv-demo/finserv",
+        context_file=str(context_file),
+    )
+
+    with patch("scripts.devin_api.get_devin_client", return_value=mock_client):
+        await cmd_create_session(args)
+
+    output_content = github_output_file.read_text()
+    assert "session_created=true" in output_content
+    assert "session_id=sess-test-001" in output_content
+    assert "session_url=https://app.devin.ai/sessions/sess-test-001" in output_content
+
+
+@pytest.mark.asyncio
+async def test_cmd_create_session_failure_httpx_error(
+    context_file: Path,
+    github_output_file: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """httpx errors are caught and produce session_created=false."""
+    import httpx
+
+    monkeypatch.setenv("DEVIN_API_KEY", "cog_test")
+    monkeypatch.setenv("DEVIN_ORG_ID", "org-test")
+    monkeypatch.setenv("IMPLEMENT_PLAYBOOK_ID", "pb-impl-001")
+    monkeypatch.setenv("GITHUB_OUTPUT", str(github_output_file))
+
+    mock_client = AsyncMock()
+    mock_client.create_session.side_effect = httpx.HTTPStatusError(
+        "500 Internal Server Error",
+        request=httpx.Request("POST", "https://api.devin.ai/v1/sessions"),
+        response=httpx.Response(500),
+    )
+
+    args = FakeArgs(
+        stage="implement",
+        issue=99,
+        repo="org/repo",
+        context_file=str(context_file),
+    )
+
+    with patch("scripts.devin_api.get_devin_client", return_value=mock_client):
+        await cmd_create_session(args)  # should not raise
+
+    output_content = github_output_file.read_text()
+    assert "session_created=false" in output_content
+    assert "session_error=" in output_content
 
 
 # ── cmd_check_active_session ──
