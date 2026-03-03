@@ -59,6 +59,28 @@ jobs:
             --json labels -q '.labels[].name')
 
           if echo "$labels" | grep -q "^devin:triaged$"; then
+            # Check if a session (e.g. triage) is still active
+            python scripts/devin_api.py check-active-session \
+              --issue ${{ github.event.issue.number }}
+            has_active=$(grep 'has_active=' "$GITHUB_OUTPUT" 2>/dev/null | tail -1 | cut -d= -f2- || echo "false")
+
+            if [ "$has_active" = "true" ]; then
+              # Triage still running — tell Devin to proceed to implement
+              # when it finishes. Devin will add the devin:implement label
+              # itself, which triggers implement.yml.
+              active_url=$(grep 'active_session_url=' "$GITHUB_OUTPUT" 2>/dev/null | tail -1 | cut -d= -f2- || true)
+              echo "The user has approved implementation. When you finish triaging, swap the label to devin:implement (instead of devin:triaged) so implementation starts automatically." > /tmp/proceed_msg.txt
+              python scripts/devin_api.py forward-comment \
+                --issue ${{ github.event.issue.number }} \
+                --author "${{ github.event.comment.user.login }}" \
+                --body-file /tmp/proceed_msg.txt
+              gh issue comment ${{ github.event.issue.number }} \
+                --repo ${{ github.repository }} \
+                --body "👍 Noted — triage is still in progress (${active_url:-session link unavailable}). Implementation will start automatically once triage completes."
+              exit 0
+            fi
+
+            # No active session — proceed immediately
             # Swap labels
             gh issue edit ${{ github.event.issue.number }} \
               --repo ${{ github.repository }} \
