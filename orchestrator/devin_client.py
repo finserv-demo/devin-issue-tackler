@@ -277,6 +277,10 @@ class DevinClient:
         - created_at/updated_at are ISO strings (stored as-is)
         - url may not be present in create response (constructed from session_id)
         - pull_request is a single dict or null (not a list)
+        - v1 returns both 'status' (uses v3-compatible names like 'running',
+          'exit') and 'status_enum' (v1-native names like 'working', 'finished',
+          'blocked'). We read 'status' first; if absent, we fall back to
+          'status_enum' with a mapping to v3-style names.
         """
         raw_id = data.get("session_id", "")
         session_id = _strip_devin_prefix(raw_id)
@@ -285,6 +289,20 @@ class DevinClient:
         url = data.get("url", "")
         if not url and session_id:
             url = f"https://app.devin.ai/sessions/{session_id}"
+
+        # v1 returns 'status' with v3-compatible values (running, exit, new, etc.)
+        # and 'status_enum' with v1-native values (working, finished, blocked, etc.).
+        # Prefer 'status'; fall back to 'status_enum' with mapping if needed.
+        status = data.get("status", "")
+        if not status:
+            raw_status = data.get("status_enum", "new")
+            _v1_to_v3_status = {
+                "working": "running",
+                "blocked": "suspended",
+                "finished": "exit",
+                "expired": "exit",
+            }
+            status = _v1_to_v3_status.get(raw_status, raw_status)
 
         # v1 pull_request is singular (dict or null), not a list
         pr_data = data.get("pull_request")
@@ -300,7 +318,7 @@ class DevinClient:
         return DevinSession(
             session_id=session_id,
             url=url,
-            status=data.get("status", "new"),
+            status=status,
             acus_consumed=data.get("acus_consumed", 0.0),
             created_at=data.get("created_at", 0),
             updated_at=data.get("updated_at", 0),

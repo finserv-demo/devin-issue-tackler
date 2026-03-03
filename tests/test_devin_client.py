@@ -318,6 +318,37 @@ def test_parse_session_url_constructed() -> None:
     assert session.url == "https://app.devin.ai/sessions/abc123"
 
 
+def test_parse_session_status_enum_fallback() -> None:
+    """When 'status' is absent, fall back to 'status_enum' with v1→v3 mapping."""
+    data = {
+        "session_id": "devin-abc123",
+        "status_enum": "working",
+    }
+    session = DevinClient._parse_session(data)
+    assert session.status == "running"
+
+
+def test_parse_session_status_enum_finished() -> None:
+    """status_enum 'finished' maps to 'exit'."""
+    data = {
+        "session_id": "devin-abc123",
+        "status_enum": "finished",
+    }
+    session = DevinClient._parse_session(data)
+    assert session.status == "exit"
+
+
+def test_parse_session_prefers_status_over_status_enum() -> None:
+    """When both 'status' and 'status_enum' are present, 'status' wins."""
+    data = {
+        "session_id": "devin-abc123",
+        "status": "running",
+        "status_enum": "blocked",
+    }
+    session = DevinClient._parse_session(data)
+    assert session.status == "running"
+
+
 # ── Rate limit retry ──
 
 
