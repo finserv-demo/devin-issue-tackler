@@ -49,6 +49,23 @@ class GitHubClient:
             resp.raise_for_status()
             return resp
 
+    # ── Authentication ──
+
+    async def get_authenticated_user(self) -> str:
+        """Get the login of the authenticated user/app.
+
+        Returns:
+            The GitHub login (e.g., 'my-bot[bot]' for GitHub Apps).
+        """
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{_GITHUB_API_BASE}/user",
+                headers=self._headers,
+                timeout=30.0,
+            )
+            resp.raise_for_status()
+            return resp.json()["login"]
+
     # ── Issue operations ──
 
     async def get_issue(self, number: int) -> GitHubIssue:

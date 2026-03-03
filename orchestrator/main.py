@@ -25,6 +25,15 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     github = GitHubClient(token=settings.github_token, repo=settings.target_repo)
     devin = DevinClient(api_key=settings.devin_api_key, org_id=settings.devin_org_id)
 
+    # Discover our own GitHub identity so we can ignore our own comments
+    try:
+        bot_login = await github.get_authenticated_user()
+        logger.info("Authenticated as GitHub user: %s", bot_login)
+    except Exception:
+        bot_login = None
+        logger.warning("Could not determine GitHub identity; mirrored comments may echo back")
+    _app.state.bot_login = bot_login
+
     poller = SessionPoller(github=github, devin=devin, settings=settings)
     _app.state.poller = poller
 

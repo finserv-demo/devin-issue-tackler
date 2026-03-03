@@ -76,7 +76,8 @@ async def github_webhook(
                 await on_issue_reopened(payload)
         case "issue_comment":
             if payload.get("action") == "created":
-                await on_issue_comment(payload, github, devin, settings)
+                bot_login: str | None = getattr(request.app.state, "bot_login", None)
+                await on_issue_comment(payload, github, devin, settings, bot_login=bot_login)
 
     return {"status": "ok"}
 
@@ -131,6 +132,8 @@ async def on_issue_comment(
     github: GitHubClient,
     devin: DevinClient,
     settings: Settings,
+    *,
+    bot_login: str | None = None,
 ) -> None:
     """Comment on issue -> check for slash commands or forward to active session."""
     issue = payload.get("issue", {})
@@ -141,7 +144,7 @@ async def on_issue_comment(
 
     logger.info("Comment on issue #%d by %s", issue_number, author)
 
-    await handle_comment(issue_number, author, body, github, devin, settings)
+    await handle_comment(issue_number, author, body, github, devin, settings, bot_login=bot_login)
 
 
 async def on_issue_closed(

@@ -44,6 +44,8 @@ async def handle_comment(
     github: GitHubClient,
     devin: DevinClient,
     settings: Settings,
+    *,
+    bot_login: str | None = None,
 ) -> None:
     """Parse comment for slash commands. If found, execute.
 
@@ -57,10 +59,12 @@ async def handle_comment(
         github: GitHubClient instance.
         devin: DevinClient instance.
         settings: Application settings.
+        bot_login: The orchestrator's own GitHub login (to ignore mirrored comments).
     """
     # Ignore bot comments to prevent loops
-    if author in BOT_AUTHORS:
-        logger.debug("Ignoring comment from bot author %s on issue #%d", author, issue_number)
+    ignore_authors = BOT_AUTHORS | ({bot_login} if bot_login else set())
+    if author in ignore_authors:
+        logger.debug("Ignoring comment from bot/self author %s on issue #%d", author, issue_number)
         return
 
     command = parse_slash_command(body)
