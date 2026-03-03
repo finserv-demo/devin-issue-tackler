@@ -255,9 +255,16 @@ jobs:
               --body "Devin triage session started: $session_url"
           fi
 
-      # ── Non-command comment: forward to active Devin session ──
+      # ── Non-command comment (or unrecognized slash command): forward to active Devin session ──
       - name: Forward comment to Devin session
-        if: steps.parse.outputs.is_command != 'true'
+        if: >-
+          steps.parse.outputs.is_command != 'true' ||
+          (steps.parse.outputs.command != '/proceed' &&
+           steps.parse.outputs.command != '/sgtm' &&
+           steps.parse.outputs.command != '/close' &&
+           steps.parse.outputs.command != '/skip' &&
+           steps.parse.outputs.command != '/triage' &&
+           steps.parse.outputs.command != '/retriage')
         env:
           DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
           DEVIN_ORG_ID: ${{ secrets.DEVIN_ORG_ID }}
