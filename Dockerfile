@@ -3,9 +3,8 @@ FROM python:3.11-slim
 WORKDIR /app
 
 COPY pyproject.toml .
-RUN pip install --no-cache-dir .
-
 COPY orchestrator/ orchestrator/
+RUN pip install --no-cache-dir .
 COPY playbooks/ playbooks/
 COPY scripts/ scripts/
 
