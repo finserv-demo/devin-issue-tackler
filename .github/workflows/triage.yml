@@ -84,6 +84,7 @@ jobs:
         if: steps.session.outputs.session_created == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SESSION_ERROR: ${{ steps.session.outputs.session_error }}
         run: |
           # Remove label in case it was added by a race condition
           gh issue edit ${{ github.event.issue.number }} \
@@ -91,13 +92,14 @@ jobs:
             --remove-label "devin:triage" 2>/dev/null || true
           gh issue comment ${{ github.event.issue.number }} \
             --repo ${{ github.repository }} \
-            --body "Failed to start Devin triage session: ${{ steps.session.outputs.session_error }}. You can retry by adding the \`devin:triage\` label or commenting \`/triage\`."
+            --body "Failed to start Devin triage session: ${SESSION_ERROR}. You can retry by adding the \`devin:triage\` label or commenting \`/triage\`."
 
   # ── Manual devin:triage label added (via UI or /triage command) ──
   start-triage-on-label:
     if: >-
       github.event.action == 'labeled' &&
-      github.event.label.name == 'devin:triage'
+      github.event.label.name == 'devin:triage' &&
+      github.event.sender.login != 'devin-ai-integration[bot]'
     runs-on: ubuntu-latest
     permissions:
       issues: write
@@ -193,13 +195,14 @@ jobs:
         if: steps.check.outputs.has_active != 'true' && steps.session.outputs.session_created == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SESSION_ERROR: ${{ steps.session.outputs.session_error }}
         run: |
           gh issue edit ${{ github.event.issue.number }} \
             --repo ${{ github.repository }} \
             --remove-label "devin:triage" 2>/dev/null || true
           gh issue comment ${{ github.event.issue.number }} \
             --repo ${{ github.repository }} \
-            --body "Failed to create Devin triage session: ${{ steps.session.outputs.session_error }}. The \`devin:triage\` label has been removed. You can retry by adding the label again or using \`/triage\`."
+            --body "Failed to create Devin triage session: ${SESSION_ERROR}. The \`devin:triage\` label has been removed. You can retry by adding the label again or using \`/triage\`."
 
   # ── Issue closed externally: terminate active session, clean up labels ──
   cleanup-on-close:
