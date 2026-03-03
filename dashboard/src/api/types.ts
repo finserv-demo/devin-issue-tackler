@@ -66,6 +66,8 @@ export interface PipelineCount {
   state: string
   count: number
   color: string
+  label: string
+  github_filter_url: string
 }
 
 export interface ThroughputPoint {
@@ -120,19 +122,23 @@ export interface SettingsUpdate {
   bulk_triage_rate_limit?: number
 }
 
-/** Pipeline status display configuration */
+/** Pipeline status display configuration.
+ * Colors reflect progression: cool (early) → warm (late).
+ * Escalated = red, skipped = gray, done = green (terminal).
+ */
 export const STATUS_CONFIG: Record<string, { label: string; color: string; bgColor: string }> = {
   new: { label: 'New', color: '#6b7280', bgColor: '#f3f4f6' },
-  triage: { label: 'Triaging', color: '#1d76db', bgColor: '#dbeafe' },
-  triaged: { label: 'Triaged', color: '#0e8a16', bgColor: '#dcfce7' },
-  implement: { label: 'Implementing', color: '#5319e7', bgColor: '#ede9fe' },
-  'pr-opened': { label: 'PR Open', color: '#b45309', bgColor: '#fef3c7' },
-  done: { label: 'Done', color: '#15803d', bgColor: '#bbf7d0' },
+  triage: { label: 'Triaging', color: '#3b82f6', bgColor: '#dbeafe' },
+  triaged: { label: 'Triaged', color: '#0ea5e9', bgColor: '#e0f2fe' },
+  implement: { label: 'Implementing', color: '#6366f1', bgColor: '#eef2ff' },
+  'pr-opened': { label: 'PR Open', color: '#f59e0b', bgColor: '#fef3c7' },
+  done: { label: 'Done', color: '#16a34a', bgColor: '#dcfce7' },
   escalated: { label: 'Escalated', color: '#dc2626', bgColor: '#fee2e2' },
+  skipped: { label: 'Skipped', color: '#9ca3af', bgColor: '#f3f4f6' },
 }
 
 export const SIZING_CONFIG: Record<string, { label: string; color: string; bgColor: string }> = {
-  green: { label: 'S', color: '#15803d', bgColor: '#dcfce7' },
+  green: { label: 'S', color: '#16a34a', bgColor: '#dcfce7' },
   yellow: { label: 'M', color: '#b45309', bgColor: '#fef3c7' },
   red: { label: 'L', color: '#dc2626', bgColor: '#fee2e2' },
 }

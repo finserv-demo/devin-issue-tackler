@@ -1,10 +1,10 @@
 import { useMetrics } from '../api/hooks'
+import { STATUS_CONFIG } from '../api/types'
+import type { PipelineCount } from '../api/types'
 import {
-  BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
+  BarChart, Bar, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
-
-const PIE_COLORS = ['#6b7280', '#1d76db', '#0e8a16', '#5319e7', '#f59e0b', '#15803d', '#dc2626']
 
 function Metrics() {
   const { data: metrics, isLoading, error } = useMetrics()
@@ -28,7 +28,7 @@ function Metrics() {
       {/* Summary cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '32px' }}>
         <MetricCard label="Total Processed" value={String(metrics.total_processed)} color="#374151" />
-        <MetricCard label="Resolved" value={String(metrics.total_done)} color="#15803d" />
+        <MetricCard label="Resolved" value={String(metrics.total_done)} color="#16a34a" />
         <MetricCard label="Escalated" value={String(metrics.total_escalated)} color="#dc2626" />
         <MetricCard label="Success Rate" value={`${metrics.success_rate.toFixed(0)}%`} color="#2563eb" />
       </div>
@@ -44,34 +44,15 @@ function Metrics() {
               <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} />
               <Tooltip />
               <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Line type="monotone" dataKey="resolved" stroke="#15803d" strokeWidth={2} name="Resolved" />
+              <Line type="monotone" dataKey="resolved" stroke="#16a34a" strokeWidth={2} name="Resolved" />
               <Line type="monotone" dataKey="opened" stroke="#6b7280" strokeWidth={2} strokeDasharray="5 5" name="Opened" />
             </LineChart>
           </ResponsiveContainer>
         </ChartCard>
 
-        {/* Pipeline distribution */}
-        <ChartCard title="Current Pipeline Distribution">
-          <ResponsiveContainer width="100%" height={250}>
-            <PieChart>
-              <Pie
-                data={metrics.pipeline}
-                dataKey="count"
-                nameKey="state"
-                cx="50%"
-                cy="50%"
-                outerRadius={90}
-                label={({ state, count }: { state: string; count: number }) => `${state}: ${count}`}
-                labelLine={false}
-                fontSize={11}
-              >
-                {metrics.pipeline.map((entry, index) => (
-                  <Cell key={entry.state} fill={entry.color || PIE_COLORS[index % PIE_COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
+        {/* Pipeline distribution — horizontal stacked bar */}
+        <ChartCard title="In-Flight Pipeline Distribution">
+          <PipelineBar pipeline={metrics.pipeline} />
         </ChartCard>
 
         {/* Resolution time */}
@@ -113,6 +94,100 @@ function Metrics() {
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
+      </div>
+    </div>
+  )
+}
+
+/** Horizontal stacked bar showing in-flight pipeline distribution.
+ *  Earlier stages on the left, later on the right. Each segment is clickable
+ *  and links to GitHub issues filtered by that label.
+ */
+function PipelineBar({ pipeline }: { pipeline: PipelineCount[] }) {
+  const total = pipeline.reduce((sum, p) => sum + p.count, 0)
+  if (total === 0) {
+    return <div style={{ padding: '24px 0', textAlign: 'center', color: '#9ca3af', fontSize: '13px' }}>No in-flight issues</div>
+  }
+
+  return (
+    <div>
+      {/* Stacked bar */}
+      <div style={{
+        display: 'flex',
+        height: '36px',
+        borderRadius: '8px',
+        overflow: 'hidden',
+        marginBottom: '16px',
+      }}>
+        {pipeline.map((entry) => {
+          const pct = (entry.count / total) * 100
+          if (pct === 0) return null
+          const config = STATUS_CONFIG[entry.state]
+          return (
+            <a
+              key={entry.state}
+              href={entry.github_filter_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={`${config?.label ?? entry.state}: ${entry.count} issue${entry.count !== 1 ? 's' : ''} — click to view on GitHub`}
+              style={{
+                width: `${pct}%`,
+                backgroundColor: entry.color,
+                minWidth: entry.count > 0 ? '24px' : 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#fff',
+                fontSize: '12px',
+                fontWeight: 700,
+                textDecoration: 'none',
+                cursor: 'pointer',
+                transition: 'filter 0.15s',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(0.85)' }}
+              onMouseLeave={(e) => { e.currentTarget.style.filter = 'none' }}
+            >
+              {entry.count}
+            </a>
+          )
+        })}
+      </div>
+
+      {/* Legend */}
+      <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', justifyContent: 'center' }}>
+        {pipeline.map((entry) => {
+          const config = STATUS_CONFIG[entry.state]
+          return (
+            <a
+              key={entry.state}
+              href={entry.github_filter_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                textDecoration: 'none',
+                color: 'inherit',
+                fontSize: '12px',
+              }}
+            >
+              <span style={{
+                width: '10px',
+                height: '10px',
+                borderRadius: '2px',
+                backgroundColor: entry.color,
+                display: 'inline-block',
+              }} />
+              <span style={{ color: '#374151', fontWeight: 500 }}>
+                {config?.label ?? entry.state}
+              </span>
+              <span style={{ color: '#9ca3af' }}>
+                {entry.count}
+              </span>
+            </a>
+          )
+        })}
       </div>
     </div>
   )

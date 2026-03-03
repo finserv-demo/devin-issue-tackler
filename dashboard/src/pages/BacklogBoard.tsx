@@ -65,7 +65,7 @@ function BacklogBoard() {
           label="Resolved"
           value={String(doneCount)}
           subtitle={`of ${totalProcessed} processed`}
-          color="#15803d"
+          color="#16a34a"
           bgColor="#f0fdf4"
         />
         <StatCard
@@ -217,7 +217,7 @@ function BacklogBoard() {
           padding: '8px 12px',
           borderRadius: '6px',
           backgroundColor: '#dcfce7',
-          color: '#15803d',
+          color: '#16a34a',
           fontSize: '13px',
         }}>
           {triageAll.data.message}

@@ -102,6 +102,8 @@ class PipelineCount(BaseModel):
     state: str
     count: int
     color: str = ""
+    label: str = ""  # GitHub label to filter by (e.g. "devin:triage")
+    github_filter_url: str = ""  # URL to GitHub issues filtered by this label
 
 
 class ThroughputPoint(BaseModel):
