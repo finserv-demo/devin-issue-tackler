@@ -66,7 +66,7 @@ function Settings() {
           padding: '8px 12px',
           borderRadius: '6px',
           backgroundColor: '#dcfce7',
-          color: '#15803d',
+          color: '#16a34a',
           fontSize: '13px',
         }}>
           Settings saved successfully.

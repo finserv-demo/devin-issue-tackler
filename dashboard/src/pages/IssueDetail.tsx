@@ -127,7 +127,7 @@ function IssueDetail() {
           padding: '8px 12px',
           borderRadius: '6px',
           backgroundColor: '#dcfce7',
-          color: '#15803d',
+          color: '#16a34a',
           fontSize: '13px',
         }}>
           {command.data?.message ?? postComment.data?.message}
@@ -162,7 +162,7 @@ function IssueDetail() {
                 </div>
                 <div style={{ display: 'flex', gap: '12px', color: '#6b7280', fontSize: '12px' }}>
                   <span>Status: <span style={{
-                    color: session.status === 'completed' ? '#15803d' : session.status === 'failed' ? '#dc2626' : '#b45309',
+                    color: session.status === 'completed' ? '#16a34a' : session.status === 'failed' ? '#dc2626' : '#f59e0b',
                     fontWeight: 500,
                   }}>{session.status}</span></span>
                   <span>{session.acus_consumed.toFixed(1)} ACUs</span>
