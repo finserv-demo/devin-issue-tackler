@@ -129,13 +129,13 @@ class SessionPoller:
                 try:
                     await self.github.post_comment(
                         issue_number,
-                        f"> **via Devin UI** (@{msg.source}):\n> {msg.message}",
+                        f"> **via Devin UI** (source: {msg.source}):\n> {msg.message}",
                     )
                 except Exception:
                     logger.exception("Failed to mirror message to issue #%d", issue_number)
 
-        if page.items:
-            self._message_cursors[session_id] = page.end_cursor or ""
+        if page.items and page.end_cursor:
+            self._message_cursors[session_id] = page.end_cursor
 
     async def recover_sessions(self) -> None:
         """Recover active sessions on startup by querying Devin API.

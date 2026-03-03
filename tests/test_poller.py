@@ -118,6 +118,7 @@ async def test_poll_mirrors_user_messages(
     call_args = github.post_comment.call_args
     assert call_args[0][0] == 42
     assert "Please check auth service" in call_args[0][1]
+    assert "@user" not in call_args[0][1]  # no accidental GitHub mention
 
 
 @pytest.mark.asyncio
