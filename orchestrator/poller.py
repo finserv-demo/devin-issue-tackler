@@ -73,6 +73,7 @@ class SessionPoller:
 
                 # Check if session completed
                 if session.status in _COMPLETED_STATUSES:
+                    await self._mirror_messages(session_id, issue_number)
                     await self._handle_session_complete(session_id, session.status, issue_number)
                     continue
 
@@ -129,7 +130,7 @@ class SessionPoller:
                 try:
                     await self.github.post_comment(
                         issue_number,
-                        f"> **via Devin UI** (source: {msg.source}):\n> {msg.message}",
+                        f"> **via Devin UI** (source: {msg.source}):\n> {msg.message.replace(chr(10), chr(10) + '> ')}",
                     )
                 except Exception:
                     logger.exception("Failed to mirror message to issue #%d", issue_number)
