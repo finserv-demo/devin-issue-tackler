@@ -1,0 +1,67 @@
+name: Implement Pipeline
+
+on:
+  issues:
+    types: [labeled]
+
+# Prevent concurrent runs for the same issue
+concurrency:
+  group: issue-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  # ── devin:implement label added (via UI or slash command) ──
+  start-implement-session:
+    if: >-
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'devin:implement'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install .
+
+      - name: Add eyes reaction
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/reactions \
+            -f content=eyes --silent || true
+
+      - name: Fetch issue context
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue view ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --json title,body,labels,comments > /tmp/issue_context.json
+
+      - name: Create implement session
+        id: session
+        env:
+          DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
+          DEVIN_ORG_ID: ${{ secrets.DEVIN_ORG_ID }}
+          IMPLEMENT_PLAYBOOK_ID: ${{ vars.IMPLEMENT_PLAYBOOK_ID }}
+          ACU_LIMIT_IMPLEMENT: ${{ vars.ACU_LIMIT_IMPLEMENT }}
+        run: |
+          python scripts/devin_api.py create-session \
+            --stage implement \
+            --issue ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --context-file /tmp/issue_context.json
+
+      - name: Post session link
+        if: steps.session.outputs.session_url
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue comment ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --body "Devin implement session started: ${{ steps.session.outputs.session_url }}"
