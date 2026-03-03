@@ -41,7 +41,6 @@ export function IssueCard({ issue, compact = false }: IssueCardProps) {
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
             <span style={{ color: '#6b7280', fontSize: '12px', fontWeight: 600, flexShrink: 0 }}>#{issue.number}</span>
             <SizingBadge sizing={issue.sizing} />
-            <StatusBadge status={issue.status} />
             <span style={{ fontSize: '11px', color: '#9ca3af', whiteSpace: 'nowrap', marginLeft: 'auto' }}>
               {issue.time_in_state}
             </span>
