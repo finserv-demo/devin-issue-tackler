@@ -34,15 +34,6 @@ jobs:
             echo "command=" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install dependencies
-        run: pip install .
-
       # ── /proceed or /sgtm: swap devin:triaged → devin:implement + create session ──
       - name: Handle /proceed
         if: steps.parse.outputs.command == '/proceed' || steps.parse.outputs.command == '/sgtm'
@@ -50,81 +41,120 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
-          DEVIN_ORG_ID: ${{ secrets.DEVIN_ORG_ID }}
           IMPLEMENT_PLAYBOOK_ID: ${{ vars.IMPLEMENT_PLAYBOOK_ID }}
           ACU_LIMIT_IMPLEMENT: ${{ vars.ACU_LIMIT_IMPLEMENT }}
         run: |
-          labels=$(gh issue view ${{ github.event.issue.number }} \
-            --repo ${{ github.repository }} \
+          issue=${{ github.event.issue.number }}
+          repo=${{ github.repository }}
+
+          labels=$(gh issue view "${issue}" \
+            --repo "${repo}" \
             --json labels -q '.labels[].name')
 
           if echo "$labels" | grep -q "^devin:triaged$"; then
             # Check if a session (e.g. triage) is still active
-            python scripts/devin_api.py check-active-session \
-              --issue ${{ github.event.issue.number }}
-            has_active=$(grep 'has_active=' "$GITHUB_OUTPUT" 2>/dev/null | tail -1 | cut -d= -f2- || echo "false")
+            response=$(curl -s \
+              -X GET "https://api.devin.ai/v1/sessions" \
+              -H "Authorization: Bearer ${DEVIN_API_KEY}" \
+              -G --data-urlencode "tags=backlog-auto,issue:${issue}" \
+              --data-urlencode "limit=100")
 
-            if [ "$has_active" = "true" ]; then
+            active_id=$(echo "$response" | jq -r '
+              [.sessions[] | select(.status as $s |
+                ["running","new","claimed","resuming"] | index($s))] |
+              first | .session_id // empty')
+
+            if [ -n "$active_id" ]; then
               # Triage still running — tell Devin to proceed to implement
-              # when it finishes. Devin will add the devin:implement label
-              # itself, which triggers implement.yml.
-              active_url=$(grep 'active_session_url=' "$GITHUB_OUTPUT" 2>/dev/null | tail -1 | cut -d= -f2- || true)
-              echo "The user has approved implementation. When you finish triaging, swap the label to devin:implement (instead of devin:triaged) so implementation starts automatically." > /tmp/proceed_msg.txt
-              python scripts/devin_api.py forward-comment \
-                --issue ${{ github.event.issue.number }} \
-                --author "${{ github.event.comment.user.login }}" \
-                --body-file /tmp/proceed_msg.txt
-              gh issue comment ${{ github.event.issue.number }} \
-                --repo ${{ github.repository }} \
-                --body "👍 Noted — triage is still in progress (${active_url:-session link unavailable}). Implementation will start automatically once triage completes."
+              msg="The user has approved implementation. When you finish triaging, swap the label to devin:implement (instead of devin:triaged) so implementation starts automatically."
+              curl -s -X POST "https://api.devin.ai/v1/sessions/${active_id}/message" \
+                -H "Authorization: Bearer ${DEVIN_API_KEY}" \
+                -H "Content-Type: application/json" \
+                -d "$(jq -n --arg m "$msg" '{message: $m}')"
+              gh issue comment "${issue}" \
+                --repo "${repo}" \
+                --body "Noted — triage is still in progress. Implementation will start automatically once triage completes."
               exit 0
             fi
 
             # No active session — proceed immediately
             # Swap labels
-            gh issue edit ${{ github.event.issue.number }} \
-              --repo ${{ github.repository }} \
+            gh issue edit "${issue}" \
+              --repo "${repo}" \
               --remove-label "devin:triaged" \
               --add-label "devin:implement"
 
             # Add eyes reaction
-            gh api repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/reactions \
+            gh api "repos/${repo}/issues/${issue}/reactions" \
               -f content=eyes --silent || true
 
             # Fetch context and create implement session
-            gh issue view ${{ github.event.issue.number }} \
-              --repo ${{ github.repository }} \
-              --json title,body,labels,comments > /tmp/issue_context.json
+            context=$(gh issue view "${issue}" \
+              --repo "${repo}" \
+              --json title,body,labels,comments)
 
-            python scripts/devin_api.py create-session \
-              --stage implement \
-              --issue ${{ github.event.issue.number }} \
-              --repo ${{ github.repository }} \
-              --context-file /tmp/issue_context.json
+            title=$(echo "$context" | jq -r '.title // ""' | head -c 500)
+            body=$(echo "$context" | jq -r '.body // ""' | head -c 5000)
+            issue_labels=$(echo "$context" | jq -r '[.labels[].name] | join(", ")')
+            comments=$(echo "$context" | jq -r '
+              .comments[] |
+              "### Comment by @\(.author.login)\n\(.body)\n"' 2>/dev/null || echo "")
 
-            # Check if session creation succeeded
-            created=$(grep 'session_created=' "$GITHUB_OUTPUT" 2>/dev/null | tail -1 | cut -d= -f2- || echo "false")
-            if [ "$created" = "true" ]; then
-              session_url=$(grep 'session_url=' "$GITHUB_OUTPUT" 2>/dev/null | tail -1 | cut -d= -f2- || true)
-              if [ -n "$session_url" ]; then
-                gh issue comment ${{ github.event.issue.number }} \
-                  --repo ${{ github.repository }} \
-                  --body "Devin implement session started: $session_url"
-              fi
+            prompt="Implement a fix for GitHub issue #${issue} on ${repo}.
+
+            ## Issue #${issue}: ${title}
+
+            ${body}
+
+            **Labels:** ${issue_labels}
+            **Repository:** ${repo}
+            **Issue URL:** https://github.com/${repo}/issues/${issue}"
+
+            if [ -n "$comments" ]; then
+              prompt="${prompt}
+
+            ## Comments (includes triage analysis and human feedback)
+            ${comments}"
+            fi
+
+            payload=$(jq -n \
+              --arg prompt "$prompt" \
+              --arg playbook_id "${IMPLEMENT_PLAYBOOK_ID:-}" \
+              --argjson max_acu "${ACU_LIMIT_IMPLEMENT:-50}" \
+              --arg tag1 "backlog-auto" \
+              --arg tag2 "issue:${issue}" \
+              --arg tag3 "stage:implement" \
+              --arg tag4 "repo:${repo}" \
+              '{
+                prompt: $prompt,
+                tags: [$tag1, $tag2, $tag3, $tag4],
+                max_acu_limit: $max_acu
+              } + (if $playbook_id != "" then {playbook_id: $playbook_id} else {} end)')
+
+            response=$(curl -s -w "\n%{http_code}" \
+              -X POST "https://api.devin.ai/v1/sessions" \
+              -H "Authorization: Bearer ${DEVIN_API_KEY}" \
+              -H "Content-Type: application/json" \
+              -d "$payload")
+
+            http_code=$(echo "$response" | tail -1)
+            resp_body=$(echo "$response" | sed '$d')
+
+            if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
+              echo "Session created successfully"
             else
               # Rollback: restore devin:triaged, remove devin:implement
-              session_error=$(grep 'session_error=' "$GITHUB_OUTPUT" 2>/dev/null | tail -1 | cut -d= -f2- || true)
-              gh issue edit ${{ github.event.issue.number }} \
-                --repo ${{ github.repository }} \
+              gh issue edit "${issue}" \
+                --repo "${repo}" \
                 --remove-label "devin:implement" \
                 --add-label "devin:triaged" 2>/dev/null || true
-              gh issue comment ${{ github.event.issue.number }} \
-                --repo ${{ github.repository }} \
-                --body "⚠️ Failed to create Devin implement session: ${session_error:-unknown error}. Labels have been restored. You can retry with \`/proceed\`."
+              gh issue comment "${issue}" \
+                --repo "${repo}" \
+                --body "Failed to create Devin implement session: HTTP ${http_code}. Labels have been restored. You can retry with \`/proceed\`."
             fi
           else
-            gh issue comment ${{ github.event.issue.number }} \
-              --repo ${{ github.repository }} \
+            gh issue comment "${issue}" \
+              --repo "${repo}" \
               --body "Cannot proceed — issue is not in \`devin:triaged\` state."
           fi
 
@@ -134,23 +164,39 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
-          DEVIN_ORG_ID: ${{ secrets.DEVIN_ORG_ID }}
         run: |
-          python scripts/devin_api.py terminate-active \
-            --issue ${{ github.event.issue.number }}
+          issue=${{ github.event.issue.number }}
+          repo=${{ github.repository }}
 
-          gh issue view ${{ github.event.issue.number }} \
-            --repo ${{ github.repository }} \
+          # Terminate active session
+          response=$(curl -s \
+            -X GET "https://api.devin.ai/v1/sessions" \
+            -H "Authorization: Bearer ${DEVIN_API_KEY}" \
+            -G --data-urlencode "tags=backlog-auto,issue:${issue}" \
+            --data-urlencode "limit=100")
+
+          session_id=$(echo "$response" | jq -r '
+            [.sessions[] | select(.status as $s |
+              ["running","new","claimed","resuming"] | index($s))] |
+            first | .session_id // empty')
+
+          if [ -n "$session_id" ]; then
+            curl -s -X DELETE "https://api.devin.ai/v1/sessions/${session_id}" \
+              -H "Authorization: Bearer ${DEVIN_API_KEY}" || true
+          fi
+
+          # Remove devin labels
+          gh issue view "${issue}" \
+            --repo "${repo}" \
             --json labels -q '.labels[].name' | while IFS= read -r label; do
             if [[ "$label" == devin:* ]]; then
-              gh issue edit ${{ github.event.issue.number }} \
-                --repo ${{ github.repository }} \
+              gh issue edit "${issue}" \
+                --repo "${repo}" \
                 --remove-label "$label" 2>/dev/null || true
             fi
           done
 
-          gh issue close ${{ github.event.issue.number }} \
-            --repo ${{ github.repository }}
+          gh issue close "${issue}" --repo "${repo}"
 
       # ── /skip: terminate active session, remove labels, add devin:skip ──
       - name: Handle /skip
@@ -158,84 +204,102 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
-          DEVIN_ORG_ID: ${{ secrets.DEVIN_ORG_ID }}
         run: |
-          python scripts/devin_api.py terminate-active \
-            --issue ${{ github.event.issue.number }}
+          issue=${{ github.event.issue.number }}
+          repo=${{ github.repository }}
 
-          gh issue view ${{ github.event.issue.number }} \
-            --repo ${{ github.repository }} \
+          # Terminate active session
+          response=$(curl -s \
+            -X GET "https://api.devin.ai/v1/sessions" \
+            -H "Authorization: Bearer ${DEVIN_API_KEY}" \
+            -G --data-urlencode "tags=backlog-auto,issue:${issue}" \
+            --data-urlencode "limit=100")
+
+          session_id=$(echo "$response" | jq -r '
+            [.sessions[] | select(.status as $s |
+              ["running","new","claimed","resuming"] | index($s))] |
+            first | .session_id // empty')
+
+          if [ -n "$session_id" ]; then
+            curl -s -X DELETE "https://api.devin.ai/v1/sessions/${session_id}" \
+              -H "Authorization: Bearer ${DEVIN_API_KEY}" || true
+          fi
+
+          # Remove devin labels
+          gh issue view "${issue}" \
+            --repo "${repo}" \
             --json labels -q '.labels[].name' | while IFS= read -r label; do
             if [[ "$label" == devin:* ]]; then
-              gh issue edit ${{ github.event.issue.number }} \
-                --repo ${{ github.repository }} \
+              gh issue edit "${issue}" \
+                --repo "${repo}" \
                 --remove-label "$label" 2>/dev/null || true
             fi
           done
 
-          gh issue edit ${{ github.event.issue.number }} \
-            --repo ${{ github.repository }} \
-            --add-label "devin:skip"
+          gh issue edit "${issue}" --repo "${repo}" --add-label "devin:skip"
 
-      # ── /triage: add devin:triage + create session (if no devin label present) ──
+      # ── /triage: create session (if no devin label present) ──
       - name: Handle /triage
         if: steps.parse.outputs.command == '/triage'
         id: triage
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
-          DEVIN_ORG_ID: ${{ secrets.DEVIN_ORG_ID }}
           TRIAGE_PLAYBOOK_ID: ${{ vars.TRIAGE_PLAYBOOK_ID }}
           ACU_LIMIT_TRIAGE: ${{ vars.ACU_LIMIT_TRIAGE }}
         run: |
-          labels=$(gh issue view ${{ github.event.issue.number }} \
-            --repo ${{ github.repository }} \
+          issue=${{ github.event.issue.number }}
+          repo=${{ github.repository }}
+
+          labels=$(gh issue view "${issue}" \
+            --repo "${repo}" \
             --json labels -q '.labels[].name')
 
           has_devin=$(echo "$labels" | grep "^devin:" || true)
           if [ -z "$has_devin" ]; then
-            # Add label
-            gh issue edit ${{ github.event.issue.number }} \
-              --repo ${{ github.repository }} \
-              --add-label "devin:triage"
+            title=$(jq -r '.issue.title // ""' "$GITHUB_EVENT_PATH" | head -c 500)
+            body=$(jq -r '.issue.body // ""' "$GITHUB_EVENT_PATH" | head -c 5000)
 
-            # Add eyes reaction
-            gh api repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/reactions \
-              -f content=eyes --silent || true
+            prompt="Triage GitHub issue #${issue} on ${repo}.
 
-            # Fetch context and create triage session
-            gh issue view ${{ github.event.issue.number }} \
-              --repo ${{ github.repository }} \
-              --json title,body,labels,comments > /tmp/issue_context.json
+            ## Issue #${issue}: ${title}
 
-            python scripts/devin_api.py create-session \
-              --stage triage \
-              --issue ${{ github.event.issue.number }} \
-              --repo ${{ github.repository }} \
-              --context-file /tmp/issue_context.json
+            ${body}
 
-            # Check if session creation succeeded
-            created=$(grep 'session_created=' "$GITHUB_OUTPUT" 2>/dev/null | tail -1 | cut -d= -f2- || echo "false")
-            if [ "$created" = "true" ]; then
-              session_url=$(grep 'session_url=' "$GITHUB_OUTPUT" 2>/dev/null | tail -1 | cut -d= -f2- || true)
-              if [ -n "$session_url" ]; then
-                gh issue comment ${{ github.event.issue.number }} \
-                  --repo ${{ github.repository }} \
-                  --body "Devin triage session started: $session_url"
-              fi
-            else
-              # Rollback: remove devin:triage
-              session_error=$(grep 'session_error=' "$GITHUB_OUTPUT" 2>/dev/null | tail -1 | cut -d= -f2- || true)
-              gh issue edit ${{ github.event.issue.number }} \
-                --repo ${{ github.repository }} \
-                --remove-label "devin:triage" 2>/dev/null || true
-              gh issue comment ${{ github.event.issue.number }} \
-                --repo ${{ github.repository }} \
-                --body "⚠️ Failed to create Devin triage session: ${session_error:-unknown error}. The \`devin:triage\` label has been removed. You can retry with \`/triage\`."
+            **Repository:** ${repo}
+            **Issue URL:** https://github.com/${repo}/issues/${issue}"
+
+            payload=$(jq -n \
+              --arg prompt "$prompt" \
+              --arg playbook_id "${TRIAGE_PLAYBOOK_ID:-}" \
+              --argjson max_acu "${ACU_LIMIT_TRIAGE:-8}" \
+              --arg tag1 "backlog-auto" \
+              --arg tag2 "issue:${issue}" \
+              --arg tag3 "stage:triage" \
+              --arg tag4 "repo:${repo}" \
+              '{
+                prompt: $prompt,
+                tags: [$tag1, $tag2, $tag3, $tag4],
+                max_acu_limit: $max_acu
+              } + (if $playbook_id != "" then {playbook_id: $playbook_id} else {} end)')
+
+            response=$(curl -s -w "\n%{http_code}" \
+              -X POST "https://api.devin.ai/v1/sessions" \
+              -H "Authorization: Bearer ${DEVIN_API_KEY}" \
+              -H "Content-Type: application/json" \
+              -d "$payload")
+
+            http_code=$(echo "$response" | tail -1)
+            resp_body=$(echo "$response" | sed '$d')
+
+            if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+              gh issue comment "${issue}" \
+                --repo "${repo}" \
+                --body "Failed to create Devin triage session: HTTP ${http_code}. You can retry with \`/triage\`."
             fi
           else
-            gh issue comment ${{ github.event.issue.number }} \
-              --repo ${{ github.repository }} \
+            gh issue comment "${issue}" \
+              --repo "${repo}" \
               --body "Cannot /triage — issue already has a devin label."
           fi
 
@@ -246,72 +310,89 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
-          DEVIN_ORG_ID: ${{ secrets.DEVIN_ORG_ID }}
           TRIAGE_PLAYBOOK_ID: ${{ vars.TRIAGE_PLAYBOOK_ID }}
           ACU_LIMIT_TRIAGE: ${{ vars.ACU_LIMIT_TRIAGE }}
         run: |
-          labels=$(gh issue view ${{ github.event.issue.number }} \
-            --repo ${{ github.repository }} \
+          issue=${{ github.event.issue.number }}
+          repo=${{ github.repository }}
+
+          labels=$(gh issue view "${issue}" \
+            --repo "${repo}" \
             --json labels -q '.labels[].name')
 
           if echo "$labels" | grep -q "^devin:skip$"; then
-            gh issue comment ${{ github.event.issue.number }} \
-              --repo ${{ github.repository }} \
+            gh issue comment "${issue}" \
+              --repo "${repo}" \
               --body "Cannot /retriage — issue has \`devin:skip\` label."
             exit 0
           fi
 
-          # Terminate active session before re-triaging
-          python scripts/devin_api.py terminate-active \
-            --issue ${{ github.event.issue.number }}
+          # Terminate active session
+          response=$(curl -s \
+            -X GET "https://api.devin.ai/v1/sessions" \
+            -H "Authorization: Bearer ${DEVIN_API_KEY}" \
+            -G --data-urlencode "tags=backlog-auto,issue:${issue}" \
+            --data-urlencode "limit=100")
+
+          session_id=$(echo "$response" | jq -r '
+            [.sessions[] | select(.status as $s |
+              ["running","new","claimed","resuming"] | index($s))] |
+            first | .session_id // empty')
+
+          if [ -n "$session_id" ]; then
+            curl -s -X DELETE "https://api.devin.ai/v1/sessions/${session_id}" \
+              -H "Authorization: Bearer ${DEVIN_API_KEY}" || true
+          fi
 
           # Remove all devin labels
           echo "$labels" | while IFS= read -r label; do
             if [[ "$label" == devin:* ]]; then
-              gh issue edit ${{ github.event.issue.number }} \
-                --repo ${{ github.repository }} \
+              gh issue edit "${issue}" \
+                --repo "${repo}" \
                 --remove-label "$label" 2>/dev/null || true
             fi
           done
 
-          # Add devin:triage label
-          gh issue edit ${{ github.event.issue.number }} \
-            --repo ${{ github.repository }} \
-            --add-label "devin:triage"
+          # Create new triage session (playbook handles label + reaction + comment)
+          title=$(jq -r '.issue.title // ""' "$GITHUB_EVENT_PATH" | head -c 500)
+          body=$(jq -r '.issue.body // ""' "$GITHUB_EVENT_PATH" | head -c 5000)
 
-          # Add eyes reaction
-          gh api repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/reactions \
-            -f content=eyes --silent || true
+          prompt="Triage GitHub issue #${issue} on ${repo}.
 
-          # Fetch context and create triage session
-          gh issue view ${{ github.event.issue.number }} \
-            --repo ${{ github.repository }} \
-            --json title,body,labels,comments > /tmp/issue_context.json
+          ## Issue #${issue}: ${title}
 
-          python scripts/devin_api.py create-session \
-            --stage triage \
-            --issue ${{ github.event.issue.number }} \
-            --repo ${{ github.repository }} \
-            --context-file /tmp/issue_context.json
+          ${body}
 
-          # Check if session creation succeeded
-          created=$(grep 'session_created=' "$GITHUB_OUTPUT" 2>/dev/null | tail -1 | cut -d= -f2- || echo "false")
-          if [ "$created" = "true" ]; then
-            session_url=$(grep 'session_url=' "$GITHUB_OUTPUT" 2>/dev/null | tail -1 | cut -d= -f2- || true)
-            if [ -n "$session_url" ]; then
-              gh issue comment ${{ github.event.issue.number }} \
-                --repo ${{ github.repository }} \
-                --body "Devin triage session started: $session_url"
-            fi
-          else
-            # Rollback: remove devin:triage (previous session was already terminated)
-            session_error=$(grep 'session_error=' "$GITHUB_OUTPUT" 2>/dev/null | tail -1 | cut -d= -f2- || true)
-            gh issue edit ${{ github.event.issue.number }} \
-              --repo ${{ github.repository }} \
-              --remove-label "devin:triage" 2>/dev/null || true
-            gh issue comment ${{ github.event.issue.number }} \
-              --repo ${{ github.repository }} \
-              --body "⚠️ Failed to create Devin triage session after retriage: ${session_error:-unknown error}. The previous session was already terminated. The \`devin:triage\` label has been removed. You can retry with \`/triage\` or \`/retriage\`."
+          **Repository:** ${repo}
+          **Issue URL:** https://github.com/${repo}/issues/${issue}"
+
+          payload=$(jq -n \
+            --arg prompt "$prompt" \
+            --arg playbook_id "${TRIAGE_PLAYBOOK_ID:-}" \
+            --argjson max_acu "${ACU_LIMIT_TRIAGE:-8}" \
+            --arg tag1 "backlog-auto" \
+            --arg tag2 "issue:${issue}" \
+            --arg tag3 "stage:triage" \
+            --arg tag4 "repo:${repo}" \
+            '{
+              prompt: $prompt,
+              tags: [$tag1, $tag2, $tag3, $tag4],
+              max_acu_limit: $max_acu
+            } + (if $playbook_id != "" then {playbook_id: $playbook_id} else {} end)')
+
+          response=$(curl -s -w "\n%{http_code}" \
+            -X POST "https://api.devin.ai/v1/sessions" \
+            -H "Authorization: Bearer ${DEVIN_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "$payload")
+
+          http_code=$(echo "$response" | tail -1)
+          resp_body=$(echo "$response" | sed '$d')
+
+          if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+            gh issue comment "${issue}" \
+              --repo "${repo}" \
+              --body "Failed to create Devin triage session after retriage: HTTP ${http_code}. The previous session was already terminated. You can retry with \`/triage\` or \`/retriage\`."
           fi
 
       # ── Non-command comment (or unrecognized slash command): forward to active Devin session ──
@@ -326,11 +407,33 @@ jobs:
            steps.parse.outputs.command != '/retriage')
         env:
           DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
-          DEVIN_ORG_ID: ${{ secrets.DEVIN_ORG_ID }}
           COMMENT_BODY: ${{ github.event.comment.body }}
         run: |
-          printenv COMMENT_BODY > /tmp/comment_body.txt
-          python scripts/devin_api.py forward-comment \
-            --issue ${{ github.event.issue.number }} \
-            --author "${{ github.event.comment.user.login }}" \
-            --body-file /tmp/comment_body.txt
+          issue=${{ github.event.issue.number }}
+          author="${{ github.event.comment.user.login }}"
+
+          # Find active session
+          response=$(curl -s \
+            -X GET "https://api.devin.ai/v1/sessions" \
+            -H "Authorization: Bearer ${DEVIN_API_KEY}" \
+            -G --data-urlencode "tags=backlog-auto,issue:${issue}" \
+            --data-urlencode "limit=100")
+
+          session_id=$(echo "$response" | jq -r '
+            [.sessions[] | select(.status as $s |
+              ["running","new","claimed","resuming"] | index($s))] |
+            first | .session_id // empty')
+
+          if [ -n "$session_id" ]; then
+            message="New comment from @${author} on GitHub issue #${issue}:
+
+          ${COMMENT_BODY}"
+
+            curl -s -X POST "https://api.devin.ai/v1/sessions/${session_id}/message" \
+              -H "Authorization: Bearer ${DEVIN_API_KEY}" \
+              -H "Content-Type: application/json" \
+              -d "$(jq -n --arg m "$message" '{message: $m}')"
+            echo "Forwarded comment from @${author} to session ${session_id}"
+          else
+            echo "No active session for issue #${issue}, comment not forwarded"
+          fi

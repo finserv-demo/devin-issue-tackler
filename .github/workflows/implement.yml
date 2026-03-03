@@ -19,23 +19,30 @@ jobs:
     permissions:
       issues: write
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install dependencies
-        run: pip install .
-
       - name: Check for existing active session
         id: check
         env:
           DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
-          DEVIN_ORG_ID: ${{ secrets.DEVIN_ORG_ID }}
         run: |
-          python scripts/devin_api.py check-active-session \
-            --issue ${{ github.event.issue.number }}
+          issue=${{ github.event.issue.number }}
+
+          response=$(curl -s \
+            -X GET "https://api.devin.ai/v1/sessions" \
+            -H "Authorization: Bearer ${DEVIN_API_KEY}" \
+            -G --data-urlencode "tags=backlog-auto,issue:${issue}" \
+            --data-urlencode "limit=100")
+
+          active_url=$(echo "$response" | jq -r '
+            [.sessions[] | select(.status as $s |
+              ["running","new","claimed","resuming"] | index($s))] |
+            first | .url // empty')
+
+          if [ -n "$active_url" ]; then
+            echo "has_active=true" >> "$GITHUB_OUTPUT"
+            echo "active_session_url=${active_url}" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_active=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Skip — active session already exists
         if: steps.check.outputs.has_active == 'true'
@@ -44,7 +51,7 @@ jobs:
         run: |
           gh issue comment ${{ github.event.issue.number }} \
             --repo ${{ github.repository }} \
-            --body "Skipping implement — an active Devin session already exists: ${{ steps.check.outputs.active_session_url }}"
+            --body "Skipping implement — an active Devin session already exists."
 
       - name: Add eyes reaction
         if: steps.check.outputs.has_active != 'true'
@@ -54,29 +61,76 @@ jobs:
           gh api repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/reactions \
             -f content=eyes --silent || true
 
-      - name: Fetch issue context
-        if: steps.check.outputs.has_active != 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh issue view ${{ github.event.issue.number }} \
-            --repo ${{ github.repository }} \
-            --json title,body,labels,comments > /tmp/issue_context.json
-
       - name: Create implement session
         if: steps.check.outputs.has_active != 'true'
         id: session
         env:
           DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
-          DEVIN_ORG_ID: ${{ secrets.DEVIN_ORG_ID }}
           IMPLEMENT_PLAYBOOK_ID: ${{ vars.IMPLEMENT_PLAYBOOK_ID }}
           ACU_LIMIT_IMPLEMENT: ${{ vars.ACU_LIMIT_IMPLEMENT }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          python scripts/devin_api.py create-session \
-            --stage implement \
-            --issue ${{ github.event.issue.number }} \
-            --repo ${{ github.repository }} \
-            --context-file /tmp/issue_context.json
+          issue=${{ github.event.issue.number }}
+          repo=${{ github.repository }}
+
+          # Fetch full issue context including comments (for triage analysis)
+          context=$(gh issue view "${issue}" \
+            --repo "${repo}" \
+            --json title,body,labels,comments)
+
+          title=$(echo "$context" | jq -r '.title // ""' | head -c 500)
+          body=$(echo "$context" | jq -r '.body // ""' | head -c 5000)
+          labels=$(echo "$context" | jq -r '[.labels[].name] | join(", ")')
+          comments=$(echo "$context" | jq -r '
+            .comments[] |
+            "### Comment by @\(.author.login)\n\(.body)\n"' 2>/dev/null || echo "")
+
+          prompt="Implement a fix for GitHub issue #${issue} on ${repo}.
+
+          ## Issue #${issue}: ${title}
+
+          ${body}
+
+          **Labels:** ${labels}
+          **Repository:** ${repo}
+          **Issue URL:** https://github.com/${repo}/issues/${issue}"
+
+          if [ -n "$comments" ]; then
+            prompt="${prompt}
+
+          ## Comments (includes triage analysis and human feedback)
+          ${comments}"
+          fi
+
+          payload=$(jq -n \
+            --arg prompt "$prompt" \
+            --arg playbook_id "${IMPLEMENT_PLAYBOOK_ID:-}" \
+            --argjson max_acu "${ACU_LIMIT_IMPLEMENT:-50}" \
+            --arg tag1 "backlog-auto" \
+            --arg tag2 "issue:${issue}" \
+            --arg tag3 "stage:implement" \
+            --arg tag4 "repo:${repo}" \
+            '{
+              prompt: $prompt,
+              tags: [$tag1, $tag2, $tag3, $tag4],
+              max_acu_limit: $max_acu
+            } + (if $playbook_id != "" then {playbook_id: $playbook_id} else {} end)')
+
+          response=$(curl -s -w "\n%{http_code}" \
+            -X POST "https://api.devin.ai/v1/sessions" \
+            -H "Authorization: Bearer ${DEVIN_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "$payload")
+
+          http_code=$(echo "$response" | tail -1)
+          resp_body=$(echo "$response" | sed '$d')
+
+          if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
+            echo "session_created=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "session_created=false" >> "$GITHUB_OUTPUT"
+            echo "session_error=HTTP ${http_code}: ${resp_body}" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Rollback — session creation failed
         if: steps.check.outputs.has_active != 'true' && steps.session.outputs.session_created == 'false'
@@ -88,13 +142,4 @@ jobs:
             --remove-label "devin:implement" 2>/dev/null || true
           gh issue comment ${{ github.event.issue.number }} \
             --repo ${{ github.repository }} \
-            --body "⚠️ Failed to create Devin implement session: ${{ steps.session.outputs.session_error }}. The \`devin:implement\` label has been removed. You can retry by adding the label again or using \`/proceed\`."
-
-      - name: Post session link
-        if: steps.check.outputs.has_active != 'true' && steps.session.outputs.session_created == 'true' && steps.session.outputs.session_url
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh issue comment ${{ github.event.issue.number }} \
-            --repo ${{ github.repository }} \
-            --body "Devin implement session started: ${{ steps.session.outputs.session_url }}"
+            --body "Failed to create Devin implement session: ${{ steps.session.outputs.session_error }}. The \`devin:implement\` label has been removed. You can retry by adding the label again or using \`/proceed\`."

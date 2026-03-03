@@ -11,6 +11,29 @@ Your job: determine if this issue should be implemented or closed, and size the 
 The full GitHub issue (title, body, labels, URL) is in your prompt context. You must have
 access to the finserv-demo/finserv codebase.
 
+## Immediate Response Phase
+Do these three things FIRST, before any analysis. Speed matters — the user should see
+activity within seconds of the issue being opened.
+
+1. **Add the `devin:triage` label** to the issue.
+2. **Add an eyes reaction** (👀) to the issue.
+3. **Post a welcome comment** on the issue:
+
+   ```
+   I'll be triaging this issue — analyzing scope, affected services, and sizing.
+
+   **What happens next:**
+   - I'll post a triage summary with my recommendation (implement or close) and effort estimate
+   - You can add context at any time by commenting on this issue
+
+   **Commands:**
+   - `/proceed` — approve implementation after triage completes
+   - `/close` — close this issue and stop work
+   - `/skip` — skip this issue (won't be auto-triaged again)
+   ```
+
+Only after all three are done, move to Context Gathering.
+
 ## Context Gathering Phase
 Think about the full scope. Issues are sometimes sparse. Make sure you understand the
 complete picture of what the user intends for a feature request, or what went wrong for
