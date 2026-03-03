@@ -1,0 +1,243 @@
+name: Triage Pipeline
+
+on:
+  issues:
+    types: [opened, labeled, closed]
+
+# Prevent concurrent runs for the same issue
+concurrency:
+  group: issue-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  # ── New issue opened: add devin:triage label (unless opted out) ──
+  auto-label-on-open:
+    if: >-
+      github.event.action == 'opened' &&
+      !contains(github.event.issue.labels.*.name, 'devin:skip') &&
+      !contains(github.event.issue.labels.*.name, 'devin:triage') &&
+      !contains(github.event.issue.labels.*.name, 'devin:triaged') &&
+      !contains(github.event.issue.labels.*.name, 'devin:implement') &&
+      !contains(github.event.issue.labels.*.name, 'devin:pr-opened') &&
+      !contains(github.event.issue.labels.*.name, 'devin:done') &&
+      !contains(github.event.issue.labels.*.name, 'devin:escalated')
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install .
+
+      - name: Add devin:triage label
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue edit ${{ github.event.issue.number }} \
+            --add-label "devin:triage" \
+            --repo ${{ github.repository }}
+
+      - name: Add eyes reaction
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/reactions \
+            -f content=eyes --silent || true
+
+      - name: Fetch issue context
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue view ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --json title,body,labels,comments > /tmp/issue_context.json
+
+      - name: Create triage session
+        id: session
+        env:
+          DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
+          DEVIN_ORG_ID: ${{ secrets.DEVIN_ORG_ID }}
+          TRIAGE_PLAYBOOK_ID: ${{ vars.TRIAGE_PLAYBOOK_ID }}
+          ACU_LIMIT_TRIAGE: ${{ vars.ACU_LIMIT_TRIAGE }}
+        run: |
+          python scripts/devin_api.py create-session \
+            --stage triage \
+            --issue ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --context-file /tmp/issue_context.json
+
+      - name: Rollback — session creation failed
+        if: steps.session.outputs.session_created == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue edit ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --remove-label "devin:triage" 2>/dev/null || true
+          gh issue comment ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --body "⚠️ Failed to create Devin triage session: ${{ steps.session.outputs.session_error }}. The \`devin:triage\` label has been removed. You can retry by adding the label again or using \`/triage\`."
+
+      - name: Post session link
+        if: steps.session.outputs.session_created == 'true' && steps.session.outputs.session_url
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue comment ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --body "Devin triage session started: ${{ steps.session.outputs.session_url }}"
+
+  # ── Manual devin:triage label added (via UI or /triage command with PAT) ──
+  start-triage-on-label:
+    if: >-
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'devin:triage'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install .
+
+      - name: Check for existing active session
+        id: check
+        env:
+          DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
+          DEVIN_ORG_ID: ${{ secrets.DEVIN_ORG_ID }}
+        run: |
+          python scripts/devin_api.py check-active-session \
+            --issue ${{ github.event.issue.number }}
+
+      - name: Skip — active session already exists
+        if: steps.check.outputs.has_active == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue comment ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --body "Skipping triage — an active Devin session already exists: ${{ steps.check.outputs.active_session_url }}"
+
+      - name: Add eyes reaction
+        if: steps.check.outputs.has_active != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/reactions \
+            -f content=eyes --silent || true
+
+      - name: Fetch issue context
+        if: steps.check.outputs.has_active != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue view ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --json title,body,labels,comments > /tmp/issue_context.json
+
+      - name: Create triage session
+        if: steps.check.outputs.has_active != 'true'
+        id: session
+        env:
+          DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
+          DEVIN_ORG_ID: ${{ secrets.DEVIN_ORG_ID }}
+          TRIAGE_PLAYBOOK_ID: ${{ vars.TRIAGE_PLAYBOOK_ID }}
+          ACU_LIMIT_TRIAGE: ${{ vars.ACU_LIMIT_TRIAGE }}
+        run: |
+          python scripts/devin_api.py create-session \
+            --stage triage \
+            --issue ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --context-file /tmp/issue_context.json
+
+      - name: Rollback — session creation failed
+        if: steps.check.outputs.has_active != 'true' && steps.session.outputs.session_created == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue edit ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --remove-label "devin:triage" 2>/dev/null || true
+          gh issue comment ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --body "⚠️ Failed to create Devin triage session: ${{ steps.session.outputs.session_error }}. The \`devin:triage\` label has been removed. You can retry by adding the label again or using \`/triage\`."
+
+      - name: Post session link
+        if: steps.check.outputs.has_active != 'true' && steps.session.outputs.session_created == 'true' && steps.session.outputs.session_url
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue comment ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --body "Devin triage session started: ${{ steps.session.outputs.session_url }}"
+
+  # ── Issue closed externally: terminate active session, clean up labels ──
+  cleanup-on-close:
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install .
+
+      - name: Check for active devin labels
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          labels=$(gh issue view ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --json labels -q '.labels[].name')
+          has_devin=false
+          is_done=false
+          while IFS= read -r label; do
+            if [[ "$label" == devin:* ]]; then
+              has_devin=true
+              if [[ "$label" == "devin:done" ]]; then
+                is_done=true
+              fi
+            fi
+          done <<< "$labels"
+          echo "has_devin_labels=$has_devin" >> "$GITHUB_OUTPUT"
+          echo "is_done=$is_done" >> "$GITHUB_OUTPUT"
+
+      - name: Terminate active session
+        if: steps.check.outputs.has_devin_labels == 'true' && steps.check.outputs.is_done != 'true'
+        env:
+          DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
+          DEVIN_ORG_ID: ${{ secrets.DEVIN_ORG_ID }}
+        run: |
+          python scripts/devin_api.py terminate-active \
+            --issue ${{ github.event.issue.number }}
+
+      - name: Remove devin labels
+        if: steps.check.outputs.has_devin_labels == 'true' && steps.check.outputs.is_done != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue view ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --json labels -q '.labels[].name' | while IFS= read -r label; do
+            if [[ "$label" == devin:* ]]; then
+              gh issue edit ${{ github.event.issue.number }} \
+                --repo ${{ github.repository }} \
+                --remove-label "$label" 2>/dev/null || true
+            fi
+          done
