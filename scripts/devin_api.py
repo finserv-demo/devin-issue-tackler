@@ -6,6 +6,7 @@ and forwarding comments to active Devin sessions.
 
 Usage:
     python scripts/devin_api.py create-session --stage triage --issue 42 --repo owner/repo --context-file ctx.json
+    python scripts/devin_api.py check-active-session --issue 42
     python scripts/devin_api.py terminate-active --issue 42
     python scripts/devin_api.py forward-comment --issue 42 --author octocat --body-file /tmp/body.txt
 """
@@ -181,6 +182,24 @@ async def cmd_create_session(args: argparse.Namespace) -> None:
     _write_github_output("session_url", session.url)
 
 
+async def cmd_check_active_session(args: argparse.Namespace) -> None:
+    """Check if there is an active Devin session for a GitHub issue.
+
+    Writes has_active=true/false and optionally active_session_url to GITHUB_OUTPUT.
+    """
+    client = get_devin_client()
+    session = await client.get_active_session_for_issue(args.issue)
+
+    if session:
+        logger.info("Active session found for issue #%d: %s (%s)", args.issue, session.session_id, session.url)
+        _write_github_output("has_active", "true")
+        _write_github_output("active_session_id", session.session_id)
+        _write_github_output("active_session_url", session.url)
+    else:
+        logger.info("No active session for issue #%d", args.issue)
+        _write_github_output("has_active", "false")
+
+
 async def cmd_terminate_active(args: argparse.Namespace) -> None:
     """Terminate the active Devin session for a GitHub issue (if any)."""
     client = get_devin_client()
@@ -228,6 +247,10 @@ def main() -> None:
     create_parser.add_argument("--repo", required=True)
     create_parser.add_argument("--context-file", required=True, help="Path to JSON file with issue context")
 
+    # check-active-session
+    check_parser = subparsers.add_parser("check-active-session", help="Check if an active session exists for an issue")
+    check_parser.add_argument("--issue", required=True, type=int)
+
     # terminate-active
     terminate_parser = subparsers.add_parser("terminate-active", help="Terminate active session for an issue")
     terminate_parser.add_argument("--issue", required=True, type=int)
@@ -243,6 +266,8 @@ def main() -> None:
 
     if args.command == "create-session":
         asyncio.run(cmd_create_session(args))
+    elif args.command == "check-active-session":
+        asyncio.run(cmd_check_active_session(args))
     elif args.command == "terminate-active":
         asyncio.run(cmd_terminate_active(args))
     elif args.command == "forward-comment":

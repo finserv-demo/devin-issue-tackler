@@ -28,7 +28,26 @@ jobs:
       - name: Install dependencies
         run: pip install .
 
+      - name: Check for existing active session
+        id: check
+        env:
+          DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
+          DEVIN_ORG_ID: ${{ secrets.DEVIN_ORG_ID }}
+        run: |
+          python scripts/devin_api.py check-active-session \
+            --issue ${{ github.event.issue.number }}
+
+      - name: Skip — active session already exists
+        if: steps.check.outputs.has_active == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue comment ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --body "Skipping implement — an active Devin session already exists: ${{ steps.check.outputs.active_session_url }}"
+
       - name: Add eyes reaction
+        if: steps.check.outputs.has_active != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -36,6 +55,7 @@ jobs:
             -f content=eyes --silent || true
 
       - name: Fetch issue context
+        if: steps.check.outputs.has_active != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -44,6 +64,7 @@ jobs:
             --json title,body,labels,comments > /tmp/issue_context.json
 
       - name: Create implement session
+        if: steps.check.outputs.has_active != 'true'
         id: session
         env:
           DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
@@ -58,7 +79,7 @@ jobs:
             --context-file /tmp/issue_context.json
 
       - name: Post session link
-        if: steps.session.outputs.session_url
+        if: steps.check.outputs.has_active != 'true' && steps.session.outputs.session_url
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

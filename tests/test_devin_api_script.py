@@ -17,6 +17,7 @@ from scripts.devin_api import (  # noqa: I001
     _format_comments,
     build_implement_prompt,
     build_triage_prompt,
+    cmd_check_active_session,
     cmd_create_session,
     cmd_forward_comment,
     cmd_terminate_active,
@@ -289,6 +290,60 @@ async def test_cmd_create_session_no_playbook(
 
     call_kwargs = mock_client.create_session.call_args
     assert call_kwargs.kwargs["playbook_id"] is None
+
+
+# ── cmd_check_active_session ──
+
+
+@pytest.mark.asyncio
+async def test_cmd_check_active_session_found(
+    github_output_file: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DEVIN_API_KEY", "cog_test")
+    monkeypatch.setenv("DEVIN_ORG_ID", "org-test")
+    monkeypatch.setenv("GITHUB_OUTPUT", str(github_output_file))
+
+    active_session = DevinSession(
+        session_id="sess-active-001",
+        url="https://app.devin.ai/sessions/sess-active-001",
+        status="running",
+    )
+    mock_client = AsyncMock()
+    mock_client.get_active_session_for_issue.return_value = active_session
+
+    args = FakeArgs(issue=42)
+
+    with patch("scripts.devin_api.get_devin_client", return_value=mock_client):
+        await cmd_check_active_session(args)
+
+    mock_client.get_active_session_for_issue.assert_called_once_with(42)
+    output_content = github_output_file.read_text()
+    assert "has_active=true" in output_content
+    assert "active_session_id=sess-active-001" in output_content
+    assert "active_session_url=https://app.devin.ai/sessions/sess-active-001" in output_content
+
+
+@pytest.mark.asyncio
+async def test_cmd_check_active_session_not_found(
+    github_output_file: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DEVIN_API_KEY", "cog_test")
+    monkeypatch.setenv("DEVIN_ORG_ID", "org-test")
+    monkeypatch.setenv("GITHUB_OUTPUT", str(github_output_file))
+
+    mock_client = AsyncMock()
+    mock_client.get_active_session_for_issue.return_value = None
+
+    args = FakeArgs(issue=42)
+
+    with patch("scripts.devin_api.get_devin_client", return_value=mock_client):
+        await cmd_check_active_session(args)
+
+    output_content = github_output_file.read_text()
+    assert "has_active=false" in output_content
+    assert "active_session_id" not in output_content
 
 
 # ── cmd_terminate_active ──
