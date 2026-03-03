@@ -21,8 +21,9 @@ function Settings() {
   }
 
   const handleSave = () => {
-    updateSettings.mutate(form)
-    setDirty(false)
+    updateSettings.mutate(form, {
+      onSuccess: () => setDirty(false),
+    })
   }
 
   if (isLoading) {
