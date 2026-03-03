@@ -58,9 +58,10 @@ class DevinClient:
                     timeout=60.0,
                 )
                 if resp.status_code == 429:
-                    wait = _INITIAL_BACKOFF_SECONDS * (2**attempt)
-                    logger.warning("Rate limited by Devin API, retrying in %ds (attempt %d/%d)", wait, attempt + 1, _MAX_RETRIES)
-                    await asyncio.sleep(wait)
+                    if attempt < _MAX_RETRIES - 1:
+                        wait = _INITIAL_BACKOFF_SECONDS * (2**attempt)
+                        logger.warning("Rate limited by Devin API, retrying in %ds (attempt %d/%d)", wait, attempt + 1, _MAX_RETRIES)
+                        await asyncio.sleep(wait)
                     continue
                 resp.raise_for_status()
                 return resp
