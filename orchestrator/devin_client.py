@@ -222,7 +222,7 @@ class DevinClient:
             end_cursor=data.get("end_cursor"),
         )
 
-    # ── Playbook management (v1 API) ──
+    # ── Playbook management ──
 
     async def create_playbook(self, title: str, body: str) -> str:
         """Create a new playbook. Returns the playbook_id."""
