@@ -124,7 +124,7 @@ async def test_get_sessions_for_issue(client: DevinClient, httpx_mock: HTTPXMock
     httpx_mock.add_response(
         url=httpx.URL(
             f"{V1_BASE}/sessions",
-            params={"limit": "100", "tags": "backlog-auto,issue:42"},
+            params={"limit": "100", "tags": ["backlog-auto", "issue:42"]},
         ),
         json={
             "sessions": [
@@ -156,7 +156,7 @@ async def test_get_active_session(client: DevinClient, httpx_mock: HTTPXMock) ->
     httpx_mock.add_response(
         url=httpx.URL(
             f"{V1_BASE}/sessions",
-            params={"limit": "100", "tags": "backlog-auto,issue:42"},
+            params={"limit": "100", "tags": ["backlog-auto", "issue:42"]},
         ),
         json={
             "sessions": [
@@ -186,7 +186,7 @@ async def test_get_active_session_none(client: DevinClient, httpx_mock: HTTPXMoc
     httpx_mock.add_response(
         url=httpx.URL(
             f"{V1_BASE}/sessions",
-            params={"limit": "100", "tags": "backlog-auto,issue:42"},
+            params={"limit": "100", "tags": ["backlog-auto", "issue:42"]},
         ),
         json={
             "sessions": [

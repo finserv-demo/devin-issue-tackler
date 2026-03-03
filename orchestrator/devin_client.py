@@ -3,7 +3,7 @@ import logging
 
 import httpx
 
-from orchestrator.schemas.devin import DevinSession, Message, MessagePage, Playbook
+from orchestrator.schemas.devin import DevinSession, Message, MessagePage, Playbook, SessionPullRequest
 
 logger = logging.getLogger(__name__)
 
@@ -131,11 +131,11 @@ class DevinClient:
             List of matching sessions.
         """
         params: dict[str, str | int] = {"limit": 100}
-        # v1 API supports tag filtering via query params
+        # v1 API supports tag filtering via repeated query params (?tags=a&tags=b)
         resp = await self._request(
             "GET",
             self._v1_url("/sessions"),
-            params={**params, "tags": ",".join(tags)},
+            params={**params, "tags": tags},
         )
         data = resp.json()
         sessions_data = data.get("sessions", data) if isinstance(data, dict) else data
@@ -249,7 +249,10 @@ class DevinClient:
             created_at=data.get("created_at", 0),
             updated_at=data.get("updated_at", 0),
             tags=data.get("tags", []),
-            pull_requests=data.get("pull_requests", []),
+            pull_requests=[
+                SessionPullRequest(pr_url=pr.get("pr_url", ""), pr_state=pr.get("pr_state", ""))
+                for pr in data.get("pull_requests", [])
+            ],
         )
 
     @staticmethod
@@ -274,5 +277,8 @@ class DevinClient:
             created_at=data.get("created_at", 0),
             updated_at=data.get("updated_at", 0),
             tags=data.get("tags", []),
-            pull_requests=data.get("pull_requests", []),
+            pull_requests=[
+                SessionPullRequest(pr_url=pr.get("pr_url", ""), pr_state=pr.get("pr_state", ""))
+                for pr in data.get("pull_requests", [])
+            ],
         )

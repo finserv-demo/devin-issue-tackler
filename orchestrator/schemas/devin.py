@@ -1,6 +1,13 @@
 from pydantic import BaseModel
 
 
+class SessionPullRequest(BaseModel):
+    """A pull request associated with a Devin session."""
+
+    pr_url: str = ""
+    pr_state: str = ""
+
+
 class DevinSession(BaseModel):
     """Parsed Devin API session."""
 
@@ -11,7 +18,7 @@ class DevinSession(BaseModel):
     created_at: int = 0
     updated_at: int = 0
     tags: list[str] = []
-    pull_requests: list[dict] = []
+    pull_requests: list[SessionPullRequest] = []
 
 
 class Message(BaseModel):

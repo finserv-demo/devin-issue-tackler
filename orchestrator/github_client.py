@@ -282,7 +282,7 @@ class GitHubClient:
                 resp = await client.get(
                     f"{_GITHUB_API_BASE}/search/issues",
                     headers=self._headers,
-                    params={"q": f"repo:{self._repo} is:pr linked:{number}"},
+                    params={"q": f"repo:{self._repo} is:pr {number}"},
                     timeout=30.0,
                 )
                 if resp.status_code == 200:
