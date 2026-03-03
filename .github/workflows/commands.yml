@@ -84,6 +84,10 @@ jobs:
               --remove-label "devin:triaged" \
               --add-label "devin:implement"
 
+            # Set up rollback trap — if anything below crashes under set -e,
+            # restore labels and notify the user.
+            trap 'gh issue edit "${issue}" --repo "${repo}" --remove-label "devin:implement" --add-label "devin:triaged" 2>/dev/null || true; gh issue comment "${issue}" --repo "${repo}" --body "Failed to create implement session (unexpected error). Labels restored. Retry with \`/proceed\`."' ERR
+
             # Add eyes reaction
             gh api "repos/${repo}/issues/${issue}/reactions" \
               -f content=eyes --silent || true
@@ -144,6 +148,7 @@ jobs:
               echo "Session created successfully"
             else
               # Rollback: restore devin:triaged, remove devin:implement
+              trap - ERR
               gh issue edit "${issue}" \
                 --repo "${repo}" \
                 --remove-label "devin:implement" \
@@ -152,6 +157,8 @@ jobs:
                 --repo "${repo}" \
                 --body "Failed to create Devin implement session: HTTP ${http_code}. Labels have been restored. You can retry with \`/proceed\`."
             fi
+
+            trap - ERR
           else
             gh issue comment "${issue}" \
               --repo "${repo}" \

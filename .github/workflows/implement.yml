@@ -135,7 +135,7 @@ jobs:
           fi
 
       - name: Rollback — session creation failed
-        if: steps.check.outputs.has_active != 'true' && steps.session.outputs.session_created == 'false'
+        if: always() && steps.check.outputs.has_active != 'true' && steps.session.outputs.session_created != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SESSION_ERROR: ${{ steps.session.outputs.session_error }}
