@@ -184,8 +184,17 @@ class GitHubClient:
         Args:
             labels: Mapping of label name to hex color (without #).
         """
-        resp = await self._request("GET", "/labels", params={"per_page": 100})
-        existing = {label["name"] for label in resp.json()}
+        existing: set[str] = set()
+        page = 1
+        while True:
+            resp = await self._request("GET", "/labels", params={"per_page": 100, "page": page})
+            items = resp.json()
+            if not items:
+                break
+            existing.update(label["name"] for label in items)
+            if len(items) < 100:
+                break
+            page += 1
 
         for name, color in labels.items():
             if name not in existing:

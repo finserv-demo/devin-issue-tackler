@@ -175,7 +175,7 @@ async def test_remove_all_devin_labels(client: GitHubClient, httpx_mock: HTTPXMo
 @pytest.mark.asyncio
 async def test_ensure_labels_exist(client: GitHubClient, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
-        url=httpx.URL(f"{BASE}/labels", params={"per_page": "100"}),
+        url=httpx.URL(f"{BASE}/labels", params={"per_page": "100", "page": "1"}),
         method="GET",
         json=[{"name": "bug"}, {"name": "devin:triage"}],
     )
