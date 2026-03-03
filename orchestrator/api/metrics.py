@@ -17,15 +17,15 @@ from orchestrator.schemas.api import (
 router = APIRouter(prefix="/api/metrics", tags=["metrics"])
 
 
-# Colors matching the label definitions for visual consistency
+# Colors matching the frontend STATUS_CONFIG for visual consistency
 _STATE_COLORS: dict[str, str] = {
     "new": "#6b7280",
     "triage": "#1d76db",
     "triaged": "#0e8a16",
     "implement": "#5319e7",
-    "pr-opened": "#f9d0c4",
-    "done": "#0e8a16",
-    "escalated": "#d93f0b",
+    "pr-opened": "#b45309",
+    "done": "#15803d",
+    "escalated": "#dc2626",
 }
 
 
