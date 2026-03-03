@@ -214,6 +214,10 @@ jobs:
             exit 0
           fi
 
+          # Terminate active session before re-triaging
+          python scripts/devin_api.py terminate-active \
+            --issue ${{ github.event.issue.number }}
+
           # Remove all devin labels
           echo "$labels" | while IFS= read -r label; do
             if [[ "$label" == devin:* ]]; then
