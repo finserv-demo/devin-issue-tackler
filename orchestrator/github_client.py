@@ -290,7 +290,7 @@ class GitHubClient:
                                     merged_at=item.get("pull_request", {}).get("merged_at"),
                                 )
                             )
-        except httpx.HTTPStatusError:
+        except (httpx.HTTPStatusError, httpx.TransportError):
             logger.warning("Failed to search for linked PRs for issue #%d", number)
 
         return prs
