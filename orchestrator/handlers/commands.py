@@ -100,7 +100,7 @@ async def execute_command(
     elif command == "/triage":
         await _handle_triage(issue_number, current_status, labels, github, settings)
     elif command == "/retriage":
-        await _handle_retriage(issue_number, current_status, github, settings)
+        await _handle_retriage(issue_number, current_status, github, devin, settings)
 
 
 async def _handle_proceed(
@@ -189,13 +189,23 @@ async def _handle_retriage(
     issue_number: int,
     current_status: DevinStatus | None,
     github: GitHubClient,
+    devin: DevinClient,
     settings: Settings,
 ) -> None:
-    """Remove current label and re-trigger triage."""
+    """Terminate active session, remove current label and re-trigger triage."""
     labels = await github.get_labels(issue_number)
     if settings.opt_out_label in labels:
         logger.warning("Cannot /retriage on issue #%d: has %s label", issue_number, settings.opt_out_label)
         return
+
+    # Terminate active session if any
+    active_session = await devin.get_active_session_for_issue(issue_number)
+    if active_session:
+        try:
+            await devin.terminate_session(active_session.session_id)
+            logger.info("Terminated session %s for issue #%d", active_session.session_id, issue_number)
+        except Exception:
+            logger.exception("Failed to terminate session for issue #%d", issue_number)
 
     await github.remove_all_devin_labels(issue_number)
     await github.add_label(issue_number, DevinStatus.TRIAGE)

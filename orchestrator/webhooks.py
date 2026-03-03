@@ -17,7 +17,7 @@ from orchestrator.github_client import GitHubClient
 from orchestrator.handlers.commands import handle_comment
 from orchestrator.handlers.implement import handle_implement
 from orchestrator.handlers.triage import handle_triage
-from orchestrator.labels import DevinControl, DevinStatus, get_current_status
+from orchestrator.labels import DevinStatus, get_current_status
 
 logger = logging.getLogger(__name__)
 
@@ -157,7 +157,7 @@ async def on_issue_closed(
     logger.info("Issue #%d closed", issue_number)
 
     current_status = get_current_status(labels)
-    if current_status is not None and current_status not in (DevinStatus.DONE, DevinControl.SKIP):
+    if current_status is not None and current_status != DevinStatus.DONE:
         # Terminate any active session
         active_session = await devin.get_active_session_for_issue(issue_number)
         if active_session:
