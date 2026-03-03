@@ -8,7 +8,6 @@ from orchestrator.schemas.devin import DevinSession, Message, MessagePage, Playb
 logger = logging.getLogger(__name__)
 
 _DEVIN_API_V3_BASE = "https://api.devin.ai/v3"
-_DEVIN_API_V1_BASE = "https://api.devin.ai/v1"
 
 _ACTIVE_STATUSES = {"new", "claimed", "running", "resuming"}
 _MAX_RETRIES = 3
@@ -34,9 +33,6 @@ class DevinClient:
 
     def _v3_url(self, path: str) -> str:
         return f"{_DEVIN_API_V3_BASE}/organizations/{self._org_id}{path}"
-
-    def _v1_url(self, path: str) -> str:
-        return f"{_DEVIN_API_V1_BASE}{path}"
 
     async def _request(
         self,
@@ -123,7 +119,10 @@ class DevinClient:
     # ── Query helpers ──
 
     async def list_sessions_by_tags(self, tags: list[str]) -> list[DevinSession]:
-        """List sessions filtered by tags using the v1 API.
+        """List sessions filtered by tags using the v3 API.
+
+        Fetches sessions via the v3 list endpoint and filters client-side
+        since v3 does not support server-side tag filtering.
 
         Args:
             tags: List of tags to filter by (all must match).
@@ -131,16 +130,36 @@ class DevinClient:
         Returns:
             List of matching sessions.
         """
-        params: dict[str, str | int] = {"limit": 100}
-        # v1 API supports tag filtering via repeated query params (?tags=a&tags=b)
-        resp = await self._request(
-            "GET",
-            self._v1_url("/sessions"),
-            params={**params, "tags": tags},
-        )
-        data = resp.json()
-        sessions_data = data.get("sessions", data) if isinstance(data, dict) else data
-        return [self._parse_session_v1(s) for s in sessions_data]
+        required_tags = set(tags)
+        matched: list[DevinSession] = []
+        cursor: str | None = None
+
+        # Paginate through sessions and filter by tags client-side
+        for _ in range(10):  # safety cap: max 10 pages (1000 sessions)
+            params: dict[str, str | int] = {"first": 100}
+            if cursor:
+                params["after"] = cursor
+
+            resp = await self._request(
+                "GET",
+                self._v3_url("/sessions"),
+                params=params,
+            )
+            data = resp.json()
+            items = data.get("items", [])
+
+            for item in items:
+                session = self._parse_session(item)
+                if required_tags.issubset(set(session.tags)):
+                    matched.append(session)
+
+            if not data.get("has_next_page", False):
+                break
+            cursor = data.get("end_cursor")
+            if not cursor:
+                break
+
+        return matched
 
     async def get_sessions_for_issue(self, issue_number: int) -> list[DevinSession]:
         """Get all sessions associated with a GitHub issue.
@@ -209,14 +228,14 @@ class DevinClient:
         """Create a new playbook. Returns the playbook_id."""
         resp = await self._request(
             "POST",
-            self._v1_url("/playbooks"),
+            self._v3_url("/playbooks"),
             json={"title": title, "body": body},
         )
         return resp.json()["playbook_id"]
 
     async def list_playbooks(self) -> list[Playbook]:
         """List all playbooks in the organization."""
-        resp = await self._request("GET", self._v1_url("/playbooks"))
+        resp = await self._request("GET", self._v3_url("/playbooks"))
         data = resp.json()
         playbooks_list = data if isinstance(data, list) else data.get("playbooks", [])
         return [
@@ -233,7 +252,7 @@ class DevinClient:
         """Update an existing playbook."""
         await self._request(
             "PUT",
-            self._v1_url(f"/playbooks/{playbook_id}"),
+            self._v3_url(f"/playbooks/{playbook_id}"),
             json={"title": title, "body": body},
         )
 
@@ -246,34 +265,6 @@ class DevinClient:
             session_id=data.get("session_id", ""),
             url=data.get("url", ""),
             status=data.get("status", "new"),
-            acus_consumed=data.get("acus_consumed", 0.0),
-            created_at=data.get("created_at", 0),
-            updated_at=data.get("updated_at", 0),
-            tags=data.get("tags", []),
-            pull_requests=[
-                SessionPullRequest(pr_url=pr.get("pr_url", ""), pr_state=pr.get("pr_state", ""))
-                for pr in data.get("pull_requests", [])
-            ],
-        )
-
-    @staticmethod
-    def _parse_session_v1(data: dict) -> DevinSession:
-        """Parse a v1 session response into a DevinSession."""
-        # v1 uses status_enum instead of status
-        status = data.get("status_enum", data.get("status", ""))
-        # Map v1 statuses to v3-style
-        v1_to_v3_status = {
-            "working": "running",
-            "blocked": "suspended",
-            "finished": "exit",
-            "expired": "exit",
-        }
-        mapped_status = v1_to_v3_status.get(status, status)
-
-        return DevinSession(
-            session_id=data.get("session_id", ""),
-            url=data.get("url", ""),
-            status=mapped_status,
             acus_consumed=data.get("acus_consumed", 0.0),
             created_at=data.get("created_at", 0),
             updated_at=data.get("updated_at", 0),

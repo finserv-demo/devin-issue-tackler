@@ -7,7 +7,6 @@ from orchestrator.devin_client import DevinClient
 API_KEY = "cog_test_key"
 ORG_ID = "org-test123"
 V3_BASE = f"https://api.devin.ai/v3/organizations/{ORG_ID}"
-V1_BASE = "https://api.devin.ai/v1"
 
 
 @pytest.fixture
@@ -122,57 +121,63 @@ async def test_terminate_session(client: DevinClient, httpx_mock: HTTPXMock) -> 
 @pytest.mark.asyncio
 async def test_get_sessions_for_issue(client: DevinClient, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
-        url=httpx.URL(
-            f"{V1_BASE}/sessions",
-            params={"limit": "100", "tags": ["backlog-auto", "issue:42"]},
-        ),
+        url=httpx.URL(f"{V3_BASE}/sessions", params={"first": "100"}),
         json={
-            "sessions": [
+            "items": [
                 {
                     "session_id": "sess-001",
                     "url": "",
-                    "status_enum": "working",
+                    "status": "running",
                     "tags": ["backlog-auto", "issue:42"],
                 },
                 {
                     "session_id": "sess-002",
                     "url": "",
-                    "status_enum": "finished",
+                    "status": "exit",
                     "tags": ["backlog-auto", "issue:42"],
                 },
-            ]
+                {
+                    "session_id": "sess-003",
+                    "url": "",
+                    "status": "running",
+                    "tags": ["backlog-auto", "issue:99"],
+                },
+            ],
+            "has_next_page": False,
+            "end_cursor": None,
         },
     )
 
     sessions = await client.get_sessions_for_issue(42)
+    # Should filter to only sessions with both backlog-auto and issue:42 tags
     assert len(sessions) == 2
     assert sessions[0].session_id == "sess-001"
-    # v1 "working" maps to v3 "running"
     assert sessions[0].status == "running"
+    # sess-003 (issue:99) should be excluded
+    assert all(s.session_id != "sess-003" for s in sessions)
 
 
 @pytest.mark.asyncio
 async def test_get_active_session(client: DevinClient, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
-        url=httpx.URL(
-            f"{V1_BASE}/sessions",
-            params={"limit": "100", "tags": ["backlog-auto", "issue:42"]},
-        ),
+        url=httpx.URL(f"{V3_BASE}/sessions", params={"first": "100"}),
         json={
-            "sessions": [
+            "items": [
                 {
                     "session_id": "sess-001",
                     "url": "",
-                    "status_enum": "working",
+                    "status": "running",
                     "tags": ["backlog-auto", "issue:42"],
                 },
                 {
                     "session_id": "sess-002",
                     "url": "",
-                    "status_enum": "finished",
+                    "status": "exit",
                     "tags": ["backlog-auto", "issue:42"],
                 },
-            ]
+            ],
+            "has_next_page": False,
+            "end_cursor": None,
         },
     )
 
@@ -184,19 +189,18 @@ async def test_get_active_session(client: DevinClient, httpx_mock: HTTPXMock) ->
 @pytest.mark.asyncio
 async def test_get_active_session_none(client: DevinClient, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
-        url=httpx.URL(
-            f"{V1_BASE}/sessions",
-            params={"limit": "100", "tags": ["backlog-auto", "issue:42"]},
-        ),
+        url=httpx.URL(f"{V3_BASE}/sessions", params={"first": "100"}),
         json={
-            "sessions": [
+            "items": [
                 {
                     "session_id": "sess-002",
                     "url": "",
-                    "status_enum": "finished",
+                    "status": "exit",
                     "tags": ["backlog-auto", "issue:42"],
                 },
-            ]
+            ],
+            "has_next_page": False,
+            "end_cursor": None,
         },
     )
 
@@ -268,7 +272,7 @@ async def test_list_messages_with_cursor(client: DevinClient, httpx_mock: HTTPXM
 @pytest.mark.asyncio
 async def test_create_playbook(client: DevinClient, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
-        url=f"{V1_BASE}/playbooks",
+        url=f"{V3_BASE}/playbooks",
         method="POST",
         json={"playbook_id": "pb-001"},
     )
