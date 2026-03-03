@@ -100,12 +100,21 @@ class DevinClient:
         return self._parse_session(data)
 
     async def get_session(self, session_id: str) -> DevinSession:
-        """Get session details by ID."""
+        """Get session details by ID.
+
+        NOTE: Returns 403 with cog_* service user keys (even Admin role).
+        Use list_sessions_by_tags() as a workaround until Devin fixes
+        individual session endpoint permissions.
+        """
         resp = await self._request("GET", self._v3_url(f"/sessions/{session_id}"))
         return self._parse_session(resp.json())
 
     async def send_message(self, session_id: str, message: str) -> None:
-        """Send a message to an active session. Auto-resumes suspended sessions."""
+        """Send a message to an active session. Auto-resumes suspended sessions.
+
+        NOTE: Returns 403 with cog_* service user keys (even Admin role).
+        Pending Devin API fix for individual session endpoint permissions.
+        """
         await self._request(
             "POST",
             self._v3_url(f"/sessions/{session_id}/messages"),
@@ -113,7 +122,11 @@ class DevinClient:
         )
 
     async def terminate_session(self, session_id: str) -> None:
-        """Terminate a session. Cannot be resumed after termination."""
+        """Terminate a session. Cannot be resumed after termination.
+
+        NOTE: Returns 403 with cog_* service user keys (even Admin role).
+        Scoped out of Phase 1 workflows. Pending Devin API fix.
+        """
         await self._request("DELETE", self._v3_url(f"/sessions/{session_id}"))
 
     # ── Query helpers ──
