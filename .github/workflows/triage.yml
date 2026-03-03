@@ -76,7 +76,9 @@ jobs:
             echo "Session created successfully"
           else
             echo "session_created=false" >> "$GITHUB_OUTPUT"
-            echo "session_error=HTTP ${http_code}: ${resp_body}" >> "$GITHUB_OUTPUT"
+            echo "session_error<<EOF" >> "$GITHUB_OUTPUT"
+            echo "HTTP ${http_code}: ${resp_body}" >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
             echo "::error::Failed to create triage session: HTTP ${http_code}"
           fi
 
@@ -188,7 +190,9 @@ jobs:
             echo "session_created=true" >> "$GITHUB_OUTPUT"
           else
             echo "session_created=false" >> "$GITHUB_OUTPUT"
-            echo "session_error=HTTP ${http_code}: ${resp_body}" >> "$GITHUB_OUTPUT"
+            echo "session_error<<EOF" >> "$GITHUB_OUTPUT"
+            echo "HTTP ${http_code}: ${resp_body}" >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Rollback — session creation failed

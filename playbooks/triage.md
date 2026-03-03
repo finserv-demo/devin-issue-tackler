@@ -27,9 +27,7 @@ activity within seconds of the issue being opened.
    - You can add context at any time by commenting on this issue
 
    **Commands:**
-   - `/proceed` — approve implementation after triage completes
-   - `/close` — close this issue and stop work
-   - `/skip` — skip this issue (won't be auto-triaged again)
+   - `/proceed` (or `/sgtm`) — approve implementation after triage completes
    ```
 
 Only after all three are done, move to Context Gathering.
@@ -88,8 +86,7 @@ a bug.
 1. Post your triage analysis as a comment on the GitHub issue. End the comment with:
    ```
    ---
-   To proceed with implementation: comment `/proceed`
-   To close this issue: comment `/close`
+   To proceed with implementation: comment `/proceed` (or `/sgtm`)
    To add context before proceeding: just comment with your input
    ```
 
