@@ -351,10 +351,7 @@ async def test_cmd_check_active_session_not_found(
 
 @pytest.mark.asyncio
 async def test_cmd_terminate_active_with_session(monkeypatch: pytest.MonkeyPatch) -> None:
-    """terminate-active is scoped out due to v3 API 403 on DELETE /sessions/{id}.
-
-    When a session is found, the command logs a warning instead of terminating.
-    """
+    """When an active session exists, terminate it."""
     monkeypatch.setenv("DEVIN_API_KEY", "cog_test")
     monkeypatch.setenv("DEVIN_ORG_ID", "org-test")
 
@@ -368,8 +365,7 @@ async def test_cmd_terminate_active_with_session(monkeypatch: pytest.MonkeyPatch
         await cmd_terminate_active(args)
 
     mock_client.get_active_session_for_issue.assert_called_once_with(42)
-    # terminate_session is NOT called — scoped out due to 403 on cog_* keys
-    mock_client.terminate_session.assert_not_called()
+    mock_client.terminate_session.assert_called_once_with("sess-active")
 
 
 @pytest.mark.asyncio

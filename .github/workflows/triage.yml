@@ -194,9 +194,14 @@ jobs:
           echo "has_devin_labels=$has_devin" >> "$GITHUB_OUTPUT"
           echo "is_done=$is_done" >> "$GITHUB_OUTPUT"
 
-      # NOTE: terminate-active is scoped out — v3 API returns 403 on
-      # DELETE /sessions/{id} with cog_* keys. Sessions will run until
-      # they complete or hit their ACU limit.
+      - name: Terminate active session
+        if: steps.check.outputs.has_devin_labels == 'true' && steps.check.outputs.is_done != 'true'
+        env:
+          DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
+          DEVIN_ORG_ID: ${{ secrets.DEVIN_ORG_ID }}
+        run: |
+          python scripts/devin_api.py terminate-active \
+            --issue ${{ github.event.issue.number }}
 
       - name: Remove devin labels
         if: steps.check.outputs.has_devin_labels == 'true' && steps.check.outputs.is_done != 'true'

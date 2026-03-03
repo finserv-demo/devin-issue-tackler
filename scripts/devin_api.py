@@ -19,8 +19,6 @@ import os
 import sys
 from pathlib import Path
 
-import httpx
-
 # Add parent directory to path so we can import orchestrator
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -188,12 +186,7 @@ async def cmd_check_active_session(args: argparse.Namespace) -> None:
     """Check if there is an active Devin session for a GitHub issue.
 
     Writes has_active=true/false and optionally active_session_url to GITHUB_OUTPUT.
-
-    NOTE: This works because it uses the v3 list endpoint (GET /sessions) with
-    client-side tag filtering. The list endpoint is accessible to cog_* service
-    user keys. Individual session endpoints (GET /sessions/{id}) return 403
-    with cog_* keys — see https://github.com/finserv-demo/devin-issue-tackler/pull/25
-    for details.
+    Uses v1 server-side tag filtering to find sessions for this issue.
     """
     client = get_devin_client()
     session = await client.get_active_session_for_issue(args.issue)
@@ -209,39 +202,19 @@ async def cmd_check_active_session(args: argparse.Namespace) -> None:
 
 
 async def cmd_terminate_active(args: argparse.Namespace) -> None:
-    """Terminate the active Devin session for a GitHub issue (if any).
-
-    SCOPED OUT: The v3 API returns 403 on DELETE /sessions/{id} with cog_*
-    service user keys, even with Admin role. This command is retained for
-    future use once the Devin API permissions issue is resolved. Callers
-    have been removed from the GitHub Actions workflows.
-    See https://github.com/finserv-demo/devin-issue-tackler/pull/25
-    """
+    """Terminate the active Devin session for a GitHub issue (if any)."""
     client = get_devin_client()
     session = await client.get_active_session_for_issue(args.issue)
 
     if session:
-        logger.warning(
-            "Found active session %s for issue #%d but cannot terminate: "
-            "v3 API returns 403 on DELETE /sessions/{id} with cog_* keys. "
-            "Session will continue running until it completes or hits ACU limit.",
-            session.session_id,
-            args.issue,
-        )
+        await client.terminate_session(session.session_id)
+        logger.info("Terminated session %s for issue #%d", session.session_id, args.issue)
     else:
         logger.info("No active session found for issue #%d", args.issue)
 
 
 async def cmd_forward_comment(args: argparse.Namespace) -> None:
-    """Forward a GitHub comment to the active Devin session for an issue.
-
-    NOTE: Currently non-functional. The v3 API returns 403 on
-    POST /sessions/{id}/messages with cog_* service user keys, even with
-    Admin role. The session lookup (via list endpoint) works, but sending
-    the message fails. This command is retained for future use once the
-    Devin API permissions issue is resolved.
-    See https://github.com/finserv-demo/devin-issue-tackler/pull/25
-    """
+    """Forward a GitHub comment to the active Devin session for an issue."""
     client = get_devin_client()
 
     # Read body from file or argument
@@ -257,18 +230,8 @@ async def cmd_forward_comment(args: argparse.Namespace) -> None:
 
     if session:
         message = f"New comment from @{args.author} on GitHub issue #{args.issue}:\n\n{body}"
-        try:
-            await client.send_message(session.session_id, message)
-            logger.info("Forwarded comment from @%s to session %s", args.author, session.session_id)
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code == 403:
-                logger.warning(
-                    "Cannot forward comment to session %s: v3 API returned 403. "
-                    "cog_* keys lack permission for POST /sessions/{id}/messages.",
-                    session.session_id,
-                )
-            else:
-                raise
+        await client.send_message(session.session_id, message)
+        logger.info("Forwarded comment from @%s to session %s", args.author, session.session_id)
     else:
         logger.info("No active session for issue #%d, comment not forwarded", args.issue)
 

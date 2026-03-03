@@ -93,15 +93,17 @@ jobs:
               --body "Cannot proceed — issue is not in \`devin:triaged\` state."
           fi
 
-      # ── /close: remove labels, close issue ──
-      # NOTE: terminate-active is scoped out — v3 API returns 403 on
-      # DELETE /sessions/{id} with cog_* keys. Sessions will run until
-      # they complete or hit their ACU limit.
+      # ── /close: terminate active session, remove labels, close issue ──
       - name: Handle /close
         if: steps.parse.outputs.command == '/close'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
+          DEVIN_ORG_ID: ${{ secrets.DEVIN_ORG_ID }}
         run: |
+          python scripts/devin_api.py terminate-active \
+            --issue ${{ github.event.issue.number }}
+
           gh issue view ${{ github.event.issue.number }} \
             --repo ${{ github.repository }} \
             --json labels -q '.labels[].name' | while IFS= read -r label; do
@@ -115,15 +117,17 @@ jobs:
           gh issue close ${{ github.event.issue.number }} \
             --repo ${{ github.repository }}
 
-      # ── /skip: remove labels, add devin:skip ──
-      # NOTE: terminate-active is scoped out — v3 API returns 403 on
-      # DELETE /sessions/{id} with cog_* keys. Sessions will run until
-      # they complete or hit their ACU limit.
+      # ── /skip: terminate active session, remove labels, add devin:skip ──
       - name: Handle /skip
         if: steps.parse.outputs.command == '/skip'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
+          DEVIN_ORG_ID: ${{ secrets.DEVIN_ORG_ID }}
         run: |
+          python scripts/devin_api.py terminate-active \
+            --issue ${{ github.event.issue.number }}
+
           gh issue view ${{ github.event.issue.number }} \
             --repo ${{ github.repository }} \
             --json labels -q '.labels[].name' | while IFS= read -r label; do
@@ -188,11 +192,7 @@ jobs:
               --body "Cannot /triage — issue already has a devin label."
           fi
 
-      # ── /retriage: remove labels, re-triage ──
-      # NOTE: terminate-active is scoped out — v3 API returns 403 on
-      # DELETE /sessions/{id} with cog_* keys. The old session will run
-      # until it completes or hits its ACU limit; a new triage session
-      # is created regardless.
+      # ── /retriage: terminate active session, remove labels, re-triage ──
       - name: Handle /retriage
         if: steps.parse.outputs.command == '/retriage'
         id: retriage
@@ -252,11 +252,6 @@ jobs:
           fi
 
       # ── Non-command comment (or unrecognized slash command): forward to active Devin session ──
-      # NOTE: forward-comment is currently non-functional. The v3 API returns
-      # 403 on POST /sessions/{id}/messages with cog_* service user keys.
-      # The session lookup works (uses list endpoint), but sending the message
-      # fails. This step will log a warning and continue without error.
-      # Re-enable once Devin fixes cog_* permissions for individual session endpoints.
       - name: Forward comment to Devin session
         if: >-
           steps.parse.outputs.is_command != 'true' ||
