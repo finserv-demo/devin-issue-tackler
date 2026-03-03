@@ -16,6 +16,25 @@ logger = logging.getLogger(__name__)
 
 SLASH_COMMANDS = {"/proceed", "/sgtm", "/close", "/skip", "/triage", "/retriage"}
 
+
+async def terminate_active_session(
+    issue_number: int,
+    devin: DevinClient,
+) -> None:
+    """Terminate the active Devin session for an issue, if one exists.
+
+    Args:
+        issue_number: The GitHub issue number.
+        devin: DevinClient instance.
+    """
+    active_session = await devin.get_active_session_for_issue(issue_number)
+    if active_session:
+        try:
+            await devin.terminate_session(active_session.session_id)
+            logger.info("Terminated session %s for issue #%d", active_session.session_id, issue_number)
+        except Exception:
+            logger.exception("Failed to terminate session for issue #%d", issue_number)
+
 # Bot authors to ignore (prevent loops)
 BOT_AUTHORS = {"devin-ai-integration[bot]", "github-actions[bot]"}
 
@@ -131,15 +150,7 @@ async def _handle_close(
     devin: DevinClient,
 ) -> None:
     """Remove all devin labels and close the issue."""
-    # Terminate active session if any
-    active_session = await devin.get_active_session_for_issue(issue_number)
-    if active_session:
-        try:
-            await devin.terminate_session(active_session.session_id)
-            logger.info("Terminated session %s for issue #%d", active_session.session_id, issue_number)
-        except Exception:
-            logger.exception("Failed to terminate session for issue #%d", issue_number)
-
+    await terminate_active_session(issue_number, devin)
     await github.remove_all_devin_labels(issue_number)
     await github.close_issue(issue_number)
     logger.info("Issue #%d closed via /close", issue_number)
@@ -151,15 +162,7 @@ async def _handle_skip(
     devin: DevinClient,
 ) -> None:
     """Add devin:skip label and terminate active session."""
-    # Terminate active session if any
-    active_session = await devin.get_active_session_for_issue(issue_number)
-    if active_session:
-        try:
-            await devin.terminate_session(active_session.session_id)
-            logger.info("Terminated session %s for issue #%d", active_session.session_id, issue_number)
-        except Exception:
-            logger.exception("Failed to terminate session for issue #%d", issue_number)
-
+    await terminate_active_session(issue_number, devin)
     await github.remove_all_devin_labels(issue_number)
     await github.add_label(issue_number, DevinControl.SKIP)
     logger.info("Issue #%d skipped via /skip", issue_number)
@@ -202,15 +205,7 @@ async def _handle_retriage(
         logger.warning("Cannot /retriage on issue #%d: has %s label", issue_number, settings.opt_out_label)
         return
 
-    # Terminate active session if any
-    active_session = await devin.get_active_session_for_issue(issue_number)
-    if active_session:
-        try:
-            await devin.terminate_session(active_session.session_id)
-            logger.info("Terminated session %s for issue #%d", active_session.session_id, issue_number)
-        except Exception:
-            logger.exception("Failed to terminate session for issue #%d", issue_number)
-
+    await terminate_active_session(issue_number, devin)
     await github.remove_all_devin_labels(issue_number)
     await github.add_label(issue_number, DevinStatus.TRIAGE)
     logger.info("Issue #%d: retriage triggered", issue_number)

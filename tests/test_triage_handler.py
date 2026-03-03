@@ -181,3 +181,61 @@ async def test_on_issue_opened_skip_label() -> None:
     }
     await on_issue_opened(payload, github, settings)
     github.add_label.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_on_issue_closed_removes_devin_labels() -> None:
+    """Externally closed issue has devin labels removed."""
+    from orchestrator.webhooks import on_issue_closed
+
+    github = AsyncMock()
+    github.remove_all_devin_labels.return_value = None
+    devin_mock = AsyncMock()
+    devin_mock.get_active_session_for_issue.return_value = None
+
+    payload = {
+        "issue": {
+            "number": 42,
+            "labels": [{"name": "bug"}, {"name": "devin:implement"}],
+        }
+    }
+    await on_issue_closed(payload, github, devin_mock)
+    github.remove_all_devin_labels.assert_called_once_with(42)
+
+
+@pytest.mark.asyncio
+async def test_on_issue_closed_no_labels_removed_when_done() -> None:
+    """No label removal when issue was already devin:done."""
+    from orchestrator.webhooks import on_issue_closed
+
+    github = AsyncMock()
+    devin_mock = AsyncMock()
+
+    payload = {
+        "issue": {
+            "number": 42,
+            "labels": [{"name": "devin:done"}],
+        }
+    }
+    await on_issue_closed(payload, github, devin_mock)
+    github.remove_all_devin_labels.assert_not_called()
+    devin_mock.get_active_session_for_issue.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_on_issue_closed_no_labels_removed_when_no_status() -> None:
+    """No label removal when issue has no devin status label."""
+    from orchestrator.webhooks import on_issue_closed
+
+    github = AsyncMock()
+    devin_mock = AsyncMock()
+
+    payload = {
+        "issue": {
+            "number": 42,
+            "labels": [{"name": "bug"}],
+        }
+    }
+    await on_issue_closed(payload, github, devin_mock)
+    github.remove_all_devin_labels.assert_not_called()
+    devin_mock.get_active_session_for_issue.assert_not_called()

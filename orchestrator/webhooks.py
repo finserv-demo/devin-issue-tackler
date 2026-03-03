@@ -14,7 +14,7 @@ from fastapi import APIRouter, Header, HTTPException, Request
 from orchestrator.config import Settings
 from orchestrator.devin_client import DevinClient
 from orchestrator.github_client import GitHubClient
-from orchestrator.handlers.commands import handle_comment
+from orchestrator.handlers.commands import handle_comment, terminate_active_session
 from orchestrator.handlers.implement import handle_implement
 from orchestrator.handlers.triage import handle_triage
 from orchestrator.labels import DevinStatus, get_current_status
@@ -161,14 +161,9 @@ async def on_issue_closed(
 
     current_status = get_current_status(labels)
     if current_status is not None and current_status != DevinStatus.DONE:
-        # Terminate any active session
-        active_session = await devin.get_active_session_for_issue(issue_number)
-        if active_session:
-            try:
-                await devin.terminate_session(active_session.session_id)
-                logger.info("Terminated session %s for closed issue #%d", active_session.session_id, issue_number)
-            except Exception:
-                logger.exception("Failed to terminate session for issue #%d", issue_number)
+        await terminate_active_session(issue_number, devin)
+        await github.remove_all_devin_labels(issue_number)
+        logger.info("Cleaned up devin state for closed issue #%d", issue_number)
 
 
 async def on_issue_reopened(payload: dict) -> None:
