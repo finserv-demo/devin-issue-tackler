@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useMetrics, useLists } from './api/hooks'
 import type { MetricCard as MetricCardType, IssueItem } from './api/types'
 
@@ -187,6 +187,17 @@ function App() {
   const [progressPage, setProgressPage] = useState(1)
   const { data: metrics, isLoading: metricsLoading, error: metricsError } = useMetrics(days)
   const { data: lists, isLoading: listsLoading, error: listsError } = useLists()
+
+  const attentionTotal = lists ? Math.ceil(lists.needs_attention.length / PAGE_SIZE) : 1
+  const progressTotal = lists ? Math.ceil(lists.in_progress.length / PAGE_SIZE) : 1
+
+  useEffect(() => {
+    if (attentionPage > attentionTotal) setAttentionPage(Math.max(1, attentionTotal))
+  }, [attentionPage, attentionTotal])
+
+  useEffect(() => {
+    if (progressPage > progressTotal) setProgressPage(Math.max(1, progressTotal))
+  }, [progressPage, progressTotal])
 
   return (
     <div className="min-h-screen bg-gray-50">
