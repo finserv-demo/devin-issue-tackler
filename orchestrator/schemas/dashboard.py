@@ -31,6 +31,8 @@ class IssueItem(BaseModel):
     sizing_label: str | None = None  # e.g. "devin:green", "devin:yellow", "devin:red"
     time_in_state: str = ""  # e.g. "2h ago", "3d ago"
     pr_url: str | None = None  # For pr-ready/pr-in-progress issues, link to the PR
+    ci_status: str | None = None  # "passing" | "failing" | "pending" | None
+    unresolved_review_threads: int | None = None  # Count of unresolved review threads
     created_at: str = ""
 
 
