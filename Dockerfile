@@ -5,7 +5,6 @@ WORKDIR /app
 COPY pyproject.toml .
 COPY orchestrator/ orchestrator/
 RUN pip install --no-cache-dir .
-COPY playbooks/ playbooks/
 COPY scripts/ scripts/
 
 EXPOSE 8000

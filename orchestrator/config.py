@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     # Labels
     opt_out_label: str = "devin:skip"
 
-    # Playbook IDs (set after running setup_playbooks.py)
+    # Playbook IDs
     triage_playbook_id: str = ""
     implement_playbook_id: str = ""
 
