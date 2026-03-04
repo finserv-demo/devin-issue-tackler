@@ -4,6 +4,7 @@ Provides hero metrics and issue lists by querying the GitHub API
 and Devin API. All data is fetched live — no local database.
 """
 
+import asyncio
 import logging
 import math
 from datetime import UTC, datetime, timedelta
@@ -70,11 +71,13 @@ async def _fetch_issues_by_labels(
     labels: list[str],
     state: str = "open",
 ) -> list[dict]:
-    """Fetch issues for multiple labels (union)."""
+    """Fetch issues for multiple labels (union), concurrently."""
+    per_label_results = await asyncio.gather(
+        *[_fetch_issues_by_label(client, repo, token, label, state) for label in labels]
+    )
     seen: set[int] = set()
     results: list[dict] = []
-    for label in labels:
-        issues = await _fetch_issues_by_label(client, repo, token, label, state)
+    for issues in per_label_results:
         for issue in issues:
             if issue["number"] not in seen:
                 seen.add(issue["number"])
@@ -302,17 +305,19 @@ async def compute_lists(settings: Settings) -> DashboardLists:
     token = settings.github_token
 
     async with httpx.AsyncClient() as client:
-        attention_issues = await _fetch_issues_by_labels(
-            client,
-            repo,
-            token,
-            ["devin:triaged", "devin:pr-opened", "devin:escalated"],
-        )
-        progress_issues = await _fetch_issues_by_labels(
-            client,
-            repo,
-            token,
-            ["devin:triage", "devin:implement"],
+        attention_issues, progress_issues = await asyncio.gather(
+            _fetch_issues_by_labels(
+                client,
+                repo,
+                token,
+                ["devin:triaged", "devin:pr-opened", "devin:escalated"],
+            ),
+            _fetch_issues_by_labels(
+                client,
+                repo,
+                token,
+                ["devin:triage", "devin:implement"],
+            ),
         )
 
     needs_attention = [_issue_to_item(i) for i in attention_issues]
