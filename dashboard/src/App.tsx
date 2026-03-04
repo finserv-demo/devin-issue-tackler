@@ -21,8 +21,12 @@ const STATUS_DISPLAY: Record<string, { bg: string; text: string; label: string }
 // ── Components ──
 
 function HeroMetricCard({ metric, accent }: { metric: MetricCardType; accent?: boolean }) {
-  const isPositive = metric.subtitle.startsWith('+')
-  const isNegative = metric.subtitle.startsWith('-')
+  const sentimentColor =
+    metric.sentiment === 'positive'
+      ? 'text-emerald-600'
+      : metric.sentiment === 'negative'
+        ? 'text-red-600'
+        : 'text-gray-500'
 
   return (
     <div
@@ -35,15 +39,7 @@ function HeroMetricCard({ metric, accent }: { metric: MetricCardType; accent?: b
         {metric.value}
       </p>
       {metric.subtitle && (
-        <p
-          className={`mt-1 text-sm font-medium ${
-            isPositive
-              ? 'text-emerald-600'
-              : isNegative
-                ? 'text-red-600'
-                : 'text-gray-500'
-          }`}
-        >
+        <p className={`mt-1 text-sm font-medium ${sentimentColor}`}>
           {metric.subtitle}
         </p>
       )}

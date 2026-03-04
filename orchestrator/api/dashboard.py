@@ -210,8 +210,11 @@ async def compute_metrics(settings: Settings, time_window_days: int = 7) -> Dash
         wow_label = "w/w" if time_window_days == 7 else "m/m"
         sign = "+" if pct_change >= 0 else ""
         resolved_subtitle = f"{sign}{pct_change:.0f}% {wow_label}"
+        # More resolved = good
+        resolved_sentiment = "positive" if pct_change >= 0 else "negative"
     else:
         resolved_subtitle = ""
+        resolved_sentiment = "neutral"
 
     period_label = "this week" if time_window_days == 7 else "this month"
 
@@ -249,10 +252,13 @@ async def compute_metrics(settings: Settings, time_window_days: int = 7) -> Dash
             # For resolution time, negative is GOOD (faster)
             sign = "+" if med_pct >= 0 else ""
             median_subtitle = f"{sign}{med_pct:.0f}% {wow_label}"
+            median_sentiment = "positive" if med_pct <= 0 else "negative"
         else:
             median_subtitle = ""
+            median_sentiment = "neutral"
     else:
         median_subtitle = ""
+        median_sentiment = "neutral"
 
     # 3. % resolved within 1 week
     # Use ALL done issues (not just current period) for this metric
@@ -270,11 +276,13 @@ async def compute_metrics(settings: Settings, time_window_days: int = 7) -> Dash
             label=f"Issues Resolved ({period_label})",
             value=str(current_count),
             subtitle=resolved_subtitle,
+            sentiment=resolved_sentiment,
         ),
         median_resolution_time=MetricCard(
             label="Median Resolution Time",
             value=median_str,
             subtitle=median_subtitle,
+            sentiment=median_sentiment,
         ),
         resolved_within_one_week=MetricCard(
             label="Resolved Within 1 Week",

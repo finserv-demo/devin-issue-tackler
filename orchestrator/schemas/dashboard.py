@@ -9,6 +9,7 @@ class MetricCard(BaseModel):
     label: str
     value: str
     subtitle: str = ""  # e.g. "+12% w/w" or "-5% w/w"
+    sentiment: str = "neutral"  # "positive", "negative", or "neutral"
 
 
 class DashboardMetrics(BaseModel):
