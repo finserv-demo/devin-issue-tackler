@@ -1,4 +1,4 @@
-const API_BASE = '/api'
+const API_BASE = '/api/dashboard'
 
 export async function fetchJSON<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
