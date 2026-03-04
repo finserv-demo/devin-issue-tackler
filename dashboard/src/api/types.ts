@@ -20,6 +20,8 @@ export interface IssueItem {
   sizing_label: string | null
   time_in_state: string
   pr_url: string | null
+  ci_status: string | null
+  unresolved_review_threads: number | null
   created_at: string
 }
 

@@ -73,26 +73,75 @@ function StatusBadge({ label }: { label: string }) {
   )
 }
 
-function IssueRow({ issue }: { issue: IssueItem }) {
+const CI_STYLES: Record<string, { bg: string; text: string; label: string }> = {
+  passing: { bg: 'bg-emerald-100', text: 'text-emerald-800', label: 'CI Passing' },
+  failing: { bg: 'bg-red-100', text: 'text-red-800', label: 'CI Failing' },
+  pending: { bg: 'bg-yellow-100', text: 'text-yellow-800', label: 'CI Pending' },
+}
+
+function CIBadge({ status }: { status: string | null }) {
+  if (!status) return null
+  const style = CI_STYLES[status]
+  if (!style) return null
   return (
-    <a
-      href={issue.html_url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 transition-colors hover:border-gray-300 hover:bg-gray-50"
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${style.bg} ${style.text}`}
     >
-      <span className="shrink-0 font-mono text-sm text-gray-400">#{issue.number}</span>
-      <span className="min-w-0 flex-1 truncate text-sm font-medium text-gray-900">
-        {issue.title}
-      </span>
-      <div className="flex shrink-0 items-center gap-2">
-        <SizingBadge label={issue.sizing_label} />
-        <StatusBadge label={issue.status_label} />
-        {issue.time_in_state && (
-          <span className="text-xs text-gray-400">{issue.time_in_state}</span>
-        )}
+      {style.label}
+    </span>
+  )
+}
+
+function ReviewThreadCount({ count }: { count: number | null }) {
+  if (count === null || count === undefined) return null
+  if (count === 0) return null
+  return (
+    <span className="inline-flex items-center rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-800">
+      {count} unresolved {count === 1 ? 'thread' : 'threads'}
+    </span>
+  )
+}
+
+function IssueRow({ issue }: { issue: IssueItem }) {
+  const isPrStage = issue.status_label === 'devin:pr-in-progress' || issue.status_label === 'devin:pr-ready'
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 transition-colors hover:border-gray-300 hover:bg-gray-50">
+      <div className="flex items-center gap-3">
+        <a
+          href={issue.html_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex min-w-0 flex-1 items-center gap-3"
+        >
+          <span className="shrink-0 font-mono text-sm text-gray-400">#{issue.number}</span>
+          <span className="min-w-0 flex-1 truncate text-sm font-medium text-gray-900">
+            {issue.title}
+          </span>
+        </a>
+        <div className="flex shrink-0 items-center gap-2">
+          <SizingBadge label={issue.sizing_label} />
+          <StatusBadge label={issue.status_label} />
+          {isPrStage && <CIBadge status={issue.ci_status} />}
+          {isPrStage && <ReviewThreadCount count={issue.unresolved_review_threads} />}
+          {issue.time_in_state && (
+            <span className="text-xs text-gray-400">{issue.time_in_state}</span>
+          )}
+        </div>
       </div>
-    </a>
+      {isPrStage && issue.pr_url && (
+        <div className="mt-1 pl-9">
+          <a
+            href={issue.pr_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-blue-600 hover:text-blue-800 hover:underline"
+          >
+            View PR
+          </a>
+        </div>
+      )}
+    </div>
   )
 }
 

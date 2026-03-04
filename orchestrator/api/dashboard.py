@@ -8,6 +8,7 @@ import asyncio
 import logging
 import math
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import httpx
 
@@ -197,7 +198,161 @@ def _format_duration(delta: timedelta) -> str:
     return f"{total_hours:.1f}h"
 
 
-def _issue_to_item(issue: dict) -> IssueItem:
+async def _find_linked_pr(
+    client: httpx.AsyncClient,
+    repo: str,
+    token: str,
+    issue_number: int,
+) -> dict[str, Any] | None:
+    """Find a PR that closes the given issue by searching PRs.
+
+    Returns the PR dict (with number, html_url, head sha) or None.
+    """
+    try:
+        events = await _fetch_issue_timeline(client, repo, token, issue_number)
+        for event in events:
+            # cross-referenced events from PRs that mention "Closes #N"
+            if event.get("event") == "cross-referenced":
+                source = event.get("source", {}).get("issue", {})
+                if source.get("pull_request") and source.get("state") == "open":
+                    pr_url = source["pull_request"].get("html_url", "")
+                    # Fetch full PR to get head SHA
+                    pr_resp = await client.get(
+                        source["pull_request"]["url"],
+                        headers=_github_headers(token),
+                        timeout=30.0,
+                    )
+                    pr_resp.raise_for_status()
+                    pr_data = pr_resp.json()
+                    return {
+                        "number": pr_data["number"],
+                        "html_url": pr_url,
+                        "head_sha": pr_data.get("head", {}).get("sha", ""),
+                    }
+    except httpx.HTTPStatusError:
+        logger.warning("Failed to find linked PR for issue #%d", issue_number)
+    return None
+
+
+async def _fetch_ci_status(
+    client: httpx.AsyncClient,
+    repo: str,
+    token: str,
+    head_sha: str,
+) -> str | None:
+    """Fetch CI status for a commit SHA. Returns 'passing', 'failing', or 'pending'."""
+    if not head_sha:
+        return None
+    try:
+        resp = await client.get(
+            f"{_GITHUB_API}/repos/{repo}/commits/{head_sha}/check-runs",
+            headers=_github_headers(token),
+            timeout=30.0,
+        )
+        resp.raise_for_status()
+        check_runs = resp.json().get("check_runs", [])
+        if not check_runs:
+            return "pending"
+
+        has_failure = False
+        has_pending = False
+        for run in check_runs:
+            status = run.get("status", "")
+            conclusion = run.get("conclusion", "")
+            if status != "completed":
+                has_pending = True
+            elif conclusion not in ("success", "skipped", "neutral"):
+                has_failure = True
+
+        if has_failure:
+            return "failing"
+        if has_pending:
+            return "pending"
+        return "passing"
+    except httpx.HTTPStatusError:
+        logger.warning("Failed to fetch CI status for %s", head_sha)
+        return None
+
+
+async def _fetch_unresolved_review_threads(
+    client: httpx.AsyncClient,
+    repo: str,
+    token: str,
+    pr_number: int,
+) -> int | None:
+    """Fetch count of unresolved review threads on a PR via GraphQL."""
+    owner, name = repo.split("/", 1)
+    query = """
+    query($owner: String!, $name: String!, $number: Int!) {
+      repository(owner: $owner, name: $name) {
+        pullRequest(number: $number) {
+          reviewThreads(first: 100) {
+            nodes {
+              isResolved
+            }
+          }
+        }
+      }
+    }
+    """
+    try:
+        resp = await client.post(
+            "https://api.github.com/graphql",
+            headers=_github_headers(token),
+            json={
+                "query": query,
+                "variables": {"owner": owner, "name": name, "number": pr_number},
+            },
+            timeout=30.0,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        pr_data = (data.get("data") or {}).get("repository") or {}
+        threads = (
+            (pr_data.get("pullRequest") or {}).get("reviewThreads") or {}
+        ).get("nodes", [])
+        return sum(1 for t in threads if not t.get("isResolved", True))
+    except (httpx.HTTPStatusError, KeyError, AttributeError):
+        logger.warning("Failed to fetch review threads for PR #%d", pr_number)
+        return None
+
+
+async def _enrich_pr_issue(
+    client: httpx.AsyncClient,
+    repo: str,
+    token: str,
+    issue: dict,
+) -> dict[str, Any]:
+    """Fetch PR metadata for an issue in a PR stage.
+
+    Returns a dict with pr_url, ci_status, and unresolved_review_threads.
+    Catches all exceptions so a single issue's enrichment failure
+    doesn't take down the entire /lists endpoint.
+    """
+    try:
+        pr = await _find_linked_pr(client, repo, token, issue["number"])
+        if pr is None:
+            return {"pr_url": None, "ci_status": None, "unresolved_review_threads": None}
+
+        ci_status, thread_count = await asyncio.gather(
+            _fetch_ci_status(client, repo, token, pr["head_sha"]),
+            _fetch_unresolved_review_threads(client, repo, token, pr["number"]),
+        )
+
+        return {
+            "pr_url": pr["html_url"],
+            "ci_status": ci_status,
+            "unresolved_review_threads": thread_count,
+        }
+    except Exception:
+        logger.warning("Failed to enrich PR data for issue #%d", issue.get("number", 0))
+        return {"pr_url": None, "ci_status": None, "unresolved_review_threads": None}
+
+
+def _issue_to_item(
+    issue: dict,
+    pr_enrichment: dict[str, Any] | None = None,
+) -> IssueItem:
     """Convert a GitHub issue dict to an IssueItem."""
     labels = issue.get("labels", [])
     status_label = _extract_status(labels)
@@ -206,6 +361,14 @@ def _issue_to_item(issue: dict) -> IssueItem:
     updated = issue.get("updated_at", "")
     time_in_state = _time_ago(updated) if updated else ""
 
+    pr_url = None
+    ci_status = None
+    unresolved_review_threads = None
+    if pr_enrichment:
+        pr_url = pr_enrichment.get("pr_url")
+        ci_status = pr_enrichment.get("ci_status")
+        unresolved_review_threads = pr_enrichment.get("unresolved_review_threads")
+
     return IssueItem(
         number=issue["number"],
         title=issue["title"],
@@ -213,7 +376,9 @@ def _issue_to_item(issue: dict) -> IssueItem:
         status_label=status_label,
         sizing_label=_extract_sizing(labels),
         time_in_state=time_in_state,
-        pr_url=None,
+        pr_url=pr_url,
+        ci_status=ci_status,
+        unresolved_review_threads=unresolved_review_threads,
         created_at=issue.get("created_at", ""),
     )
 
@@ -356,11 +521,24 @@ async def compute_metrics(settings: Settings, time_window_days: int = 7) -> Dash
     )
 
 
+def _is_pr_stage(issue: dict) -> bool:
+    """Check if an issue is in a PR stage (pr-in-progress or pr-ready)."""
+    labels = issue.get("labels", [])
+    for label in labels:
+        name = label.get("name", "")
+        if name in ("devin:pr-in-progress", "devin:pr-ready"):
+            return True
+    return False
+
+
 async def compute_lists(settings: Settings) -> DashboardLists:
     """Compute the attention and in-progress lists.
 
     Attention: issues with devin:triaged, devin:pr-ready, devin:escalated
     In Progress: issues with devin:triage, devin:implement, devin:pr-in-progress
+
+    For issues in PR stages, enriches with linked PR URL, CI status,
+    and unresolved review thread count.
     """
     repo = settings.target_repo
     token = settings.github_token
@@ -381,8 +559,27 @@ async def compute_lists(settings: Settings) -> DashboardLists:
             ),
         )
 
-    needs_attention = [_issue_to_item(i) for i in attention_issues]
-    in_progress = [_issue_to_item(i) for i in progress_issues]
+        # Enrich PR-stage issues with PR metadata (concurrently)
+        all_issues = attention_issues + progress_issues
+        pr_stage_issues = [i for i in all_issues if _is_pr_stage(i)]
+
+        enrichment_results = await asyncio.gather(
+            *[
+                _enrich_pr_issue(client, repo, token, issue)
+                for issue in pr_stage_issues
+            ]
+        )
+        enrichment_map: dict[int, dict[str, Any]] = {
+            issue["number"]: result
+            for issue, result in zip(pr_stage_issues, enrichment_results, strict=True)
+        }
+
+    needs_attention = [
+        _issue_to_item(i, enrichment_map.get(i["number"])) for i in attention_issues
+    ]
+    in_progress = [
+        _issue_to_item(i, enrichment_map.get(i["number"])) for i in progress_issues
+    ]
 
     # Sort attention: escalated first, then pr-ready, then triaged
     status_priority = {
