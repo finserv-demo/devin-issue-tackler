@@ -39,8 +39,8 @@ VALID_TRANSITIONS: dict[str | None, list[DevinStatus]] = {
     DevinStatus.TRIAGE: [DevinStatus.TRIAGED],
     DevinStatus.TRIAGED: [DevinStatus.IMPLEMENT, DevinStatus.TRIAGE],
     DevinStatus.IMPLEMENT: [DevinStatus.PR_IN_PROGRESS, DevinStatus.ESCALATED],
-    DevinStatus.PR_IN_PROGRESS: [DevinStatus.PR_READY, DevinStatus.ESCALATED],
-    DevinStatus.PR_READY: [DevinStatus.PR_IN_PROGRESS, DevinStatus.DONE, DevinStatus.ESCALATED],
+    DevinStatus.PR_IN_PROGRESS: [DevinStatus.PR_READY, DevinStatus.ESCALATED, DevinStatus.TRIAGED],
+    DevinStatus.PR_READY: [DevinStatus.PR_IN_PROGRESS, DevinStatus.DONE, DevinStatus.ESCALATED, DevinStatus.TRIAGED],
     DevinStatus.ESCALATED: [DevinStatus.TRIAGE, DevinStatus.IMPLEMENT],
     DevinStatus.DONE: [],
 }

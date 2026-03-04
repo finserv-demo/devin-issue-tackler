@@ -56,6 +56,16 @@ def test_valid_transition_pr_ready_to_pr_in_progress() -> None:
     assert is_valid_transition(DevinStatus.PR_READY, DevinStatus.PR_IN_PROGRESS) is True
 
 
+def test_valid_transition_pr_in_progress_to_triaged() -> None:
+    """PR closed without merge should allow transitioning back to triaged."""
+    assert is_valid_transition(DevinStatus.PR_IN_PROGRESS, DevinStatus.TRIAGED) is True
+
+
+def test_valid_transition_pr_ready_to_triaged() -> None:
+    """PR closed without merge should allow transitioning back to triaged."""
+    assert is_valid_transition(DevinStatus.PR_READY, DevinStatus.TRIAGED) is True
+
+
 def test_valid_transition_escalated_to_triage() -> None:
     assert is_valid_transition(DevinStatus.ESCALATED, DevinStatus.TRIAGE) is True
 
