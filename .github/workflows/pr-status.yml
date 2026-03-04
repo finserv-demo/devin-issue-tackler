@@ -69,8 +69,16 @@ jobs:
           fi
 
           echo "skip=false" >> "$GITHUB_OUTPUT"
-          echo "current_in_progress=$( [ -n \"$has_in_progress\" ] && echo true || echo false )" >> "$GITHUB_OUTPUT"
-          echo "current_ready=$( [ -n \"$has_ready\" ] && echo true || echo false )" >> "$GITHUB_OUTPUT"
+          if [ -n "$has_in_progress" ]; then
+            echo "current_in_progress=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "current_in_progress=false" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -n "$has_ready" ]; then
+            echo "current_ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "current_ready=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Check CI and review status
         if: steps.pr.outputs.skip != 'true'
