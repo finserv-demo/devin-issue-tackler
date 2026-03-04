@@ -147,11 +147,12 @@ Any other transition is WRONG and will break the system:
 | CI green + comments resolved  | `devin:pr-in-progress`  | `devin:pr-ready`        |
 | CI fails after being ready    | `devin:pr-ready`        | `devin:pr-in-progress`  |
 | PR ready for merge            | `devin:pr-ready`        | `devin:done`            |
+| Stuck / unrecoverable         | `devin:implement`       | `devin:escalated`       |
 | Stuck / unrecoverable         | `devin:pr-in-progress`  | `devin:escalated`       |
 | Stuck / unrecoverable         | `devin:pr-ready`        | `devin:escalated`       |
 
-**There is NO direct path from `devin:implement` to `devin:pr-ready`, `devin:done`,
-or `devin:escalated`.** You MUST go through `devin:pr-in-progress` first.
+**There is NO direct path from `devin:implement` to `devin:pr-ready` or `devin:done`.**
+You MUST go through `devin:pr-in-progress` first.
 
 **There is NO direct path from `devin:pr-in-progress` to `devin:done`.** You MUST
 go through `devin:pr-ready` first.
