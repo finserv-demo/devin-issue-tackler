@@ -56,7 +56,16 @@ Re-read everything. Make sure you understand the full scope before writing code.
 
 8. Post a comment on the issue with the PR link.
 
-9. Swap label: `devin:implement` → `devin:pr-opened`
+9. **CRITICAL — Label Transition (implement -> pr-in-progress):**
+   Immediately after creating the PR, you MUST swap the issue label:
+
+       `devin:implement` -> `devin:pr-in-progress`
+
+   This is NOT optional. This is NOT a suggestion. You MUST perform this label
+   swap as soon as the PR is created. Failure to do so will leave the issue
+   stuck in the wrong state and break the dashboard. Do NOT skip this step.
+   Do NOT use any other label. The ONLY valid transition here is:
+   `devin:implement` -> `devin:pr-in-progress`.
 
 ### Verification
 - All affected files and callers/callees updated
@@ -64,6 +73,7 @@ Re-read everything. Make sure you understand the full scope before writing code.
 - Tests written or updated
 - Lint checks pass
 - PR created with clear description linking to issue
+- **Label is now `devin:pr-in-progress`** — confirm this before proceeding
 
 ## Iteration Phase
 1. Use `ask_smart_friend` to review your PR diff:
@@ -84,21 +94,75 @@ Re-read everything. Make sure you understand the full scope before writing code.
 5. If actionable feedback: fix, push, wait for CI again. Repeat (up to 3 total fix
    cycles for CI/review failures).
 
-6. **If all clean after iteration**: swap label `devin:pr-opened` → `devin:done`.
-   Post a brief comment on the issue confirming the PR is ready for human merge.
+6. **CRITICAL — Label Transition (pr-in-progress -> pr-ready):**
+   Once ALL of the following are true:
+   - CI checks are passing
+   - No unresolved review comments remain
+   - You have completed your iteration cycles
 
-7. **If stuck after 5 fix attempts**: swap label `devin:pr-opened` → `devin:escalated`.
+   You MUST swap the issue label:
+
+       `devin:pr-in-progress` -> `devin:pr-ready`
+
+   This transition signals to the team that the PR is ready for human review.
+   Do NOT set `devin:pr-ready` unless CI is green and comments are resolved.
+   Do NOT skip this step. Do NOT leave the label as `devin:pr-in-progress`
+   when the PR is actually ready.
+
+   > NOTE: The `pr-status.yml` workflow will also automatically swap between
+   > `devin:pr-in-progress` and `devin:pr-ready` based on CI results and
+   > review status. However, you MUST still perform this swap yourself as a
+   > primary responsibility — do not rely on the workflow alone.
+
+7. **CRITICAL — Label Transition (pr-ready -> done):**
+   After the PR is merged (or confirmed ready and all iteration is complete),
+   swap the issue label:
+
+       `devin:pr-ready` -> `devin:done`
+
+   Post a brief comment on the issue confirming the PR is ready for human merge.
+   Do NOT set `devin:done` until the PR is fully ready. Do NOT skip this step.
+
+8. **CRITICAL — Escalation (any PR state -> escalated):**
+   If stuck after 5 fix attempts, swap the label to `devin:escalated`:
+
+       `devin:pr-in-progress` -> `devin:escalated`
+
    Post a comment on the issue summarizing:
    - What's failing
    - What you tried
    - What you think needs human attention
+
+   Do NOT leave a stuck issue in `devin:pr-in-progress` or `devin:pr-ready`.
+   Escalate promptly so humans can unblock it.
+
+## Label Transition Summary
+
+The following are the ONLY valid label transitions during implementation.
+Any other transition is WRONG and will break the system:
+
+| When                          | From                    | To                      |
+|-------------------------------|-------------------------|-------------------------|
+| PR created                    | `devin:implement`       | `devin:pr-in-progress`  |
+| CI green + comments resolved  | `devin:pr-in-progress`  | `devin:pr-ready`        |
+| CI fails after being ready    | `devin:pr-ready`        | `devin:pr-in-progress`  |
+| PR ready for merge            | `devin:pr-ready`        | `devin:done`            |
+| Stuck / unrecoverable         | `devin:implement`       | `devin:escalated`       |
+| Stuck / unrecoverable         | `devin:pr-in-progress`  | `devin:escalated`       |
+| Stuck / unrecoverable         | `devin:pr-ready`        | `devin:escalated`       |
+
+**There is NO direct path from `devin:implement` to `devin:pr-ready` or `devin:done`.**
+You MUST go through `devin:pr-in-progress` first.
+
+**There is NO direct path from `devin:pr-in-progress` to `devin:done`.** You MUST
+go through `devin:pr-ready` first.
 
 ### Verification
 - `ask_smart_friend` used for thorough self-review
 - All PR comments from human reviewers resolved
 - Bot reviewer feedback triaged and addressed
 - CI checks pass (or escalated if stuck)
-- Final label reflects outcome (done or escalated)
+- **Final label reflects actual outcome** — verify the label is correct
 
 ## Specifications
 - PR must address all requirements from the issue and plan
@@ -122,3 +186,5 @@ IMPORTANT: Use only the Devin MCP, NOT the DeepWiki MCP.
 - Do not merge the PR
 - Do not skip the self-review phase
 - Do not push directly to main
+- Do not skip ANY label transition — every transition listed above is mandatory
+- Do not use `devin:pr-opened` — this label no longer exists
