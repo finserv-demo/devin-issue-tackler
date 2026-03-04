@@ -313,15 +313,12 @@ async def _fetch_unresolved_review_threads(
         )
         resp.raise_for_status()
         data = resp.json()
+        pr_data = (data.get("data") or {}).get("repository") or {}
         threads = (
-            data.get("data", {})
-            .get("repository", {})
-            .get("pullRequest", {})
-            .get("reviewThreads", {})
-            .get("nodes", [])
-        )
+            (pr_data.get("pullRequest") or {}).get("reviewThreads") or {}
+        ).get("nodes", [])
         return sum(1 for t in threads if not t.get("isResolved", True))
-    except (httpx.HTTPStatusError, KeyError):
+    except (httpx.HTTPStatusError, KeyError, AttributeError):
         logger.warning("Failed to fetch review threads for PR #%d", pr_number)
         return None
 
