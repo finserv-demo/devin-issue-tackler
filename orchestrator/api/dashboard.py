@@ -106,7 +106,7 @@ def _extract_sizing(labels: list[dict]) -> str | None:
     """Extract the devin sizing label from a list of GitHub label objects."""
     for label in labels:
         name = label.get("name", "")
-        if name in ("devin:green", "devin:yellow", "devin:red"):
+        if name in ("devin:small", "devin:medium", "devin:large"):
             return name
     return None
 
