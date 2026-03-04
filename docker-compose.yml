@@ -7,5 +7,4 @@ services:
       - .env
     volumes:
       - ./orchestrator:/app/orchestrator
-      - ./playbooks:/app/playbooks
     restart: unless-stopped
