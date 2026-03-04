@@ -103,7 +103,7 @@ def test_get_current_status_with_triage_label() -> None:
 
 
 def test_get_current_status_with_implement_label() -> None:
-    labels = ["devin:implement", "devin:yellow"]
+    labels = ["devin:implement", "devin:medium"]
     assert get_current_status(labels) == DevinStatus.IMPLEMENT
 
 
@@ -113,7 +113,7 @@ def test_get_current_status_with_done_label() -> None:
 
 
 def test_get_current_status_with_no_devin_status() -> None:
-    labels = ["bug", "enhancement", "devin:green"]
+    labels = ["bug", "enhancement", "devin:small"]
     assert get_current_status(labels) is None
 
 

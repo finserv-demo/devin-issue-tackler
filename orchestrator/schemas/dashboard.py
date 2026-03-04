@@ -28,7 +28,7 @@ class IssueItem(BaseModel):
     title: str
     html_url: str  # GitHub issue URL
     status_label: str  # e.g. "devin:triaged", "devin:pr-ready"
-    sizing_label: str | None = None  # e.g. "devin:green", "devin:yellow", "devin:red"
+    sizing_label: str | None = None  # e.g. "devin:small", "devin:medium", "devin:large"
     time_in_state: str = ""  # e.g. "2h ago", "3d ago"
     pr_url: str | None = None  # For pr-ready/pr-in-progress issues, link to the PR
     ci_status: str | None = None  # "passing" | "failing" | "pending" | None

@@ -1,13 +1,15 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useMetrics, useLists } from './api/hooks'
 import type { MetricCard as MetricCardType, IssueItem } from './api/types'
+
+const PAGE_SIZE = 5
 
 // ── Sizing badge colors ──
 
 const SIZING_COLORS: Record<string, { bg: string; text: string; label: string }> = {
-  'devin:green': { bg: 'bg-emerald-100', text: 'text-emerald-800', label: 'Green' },
-  'devin:yellow': { bg: 'bg-amber-100', text: 'text-amber-800', label: 'Yellow' },
-  'devin:red': { bg: 'bg-red-100', text: 'text-red-800', label: 'Red' },
+  'devin:small': { bg: 'bg-emerald-100', text: 'text-emerald-800', label: 'S' },
+  'devin:medium': { bg: 'bg-amber-100', text: 'text-amber-800', label: 'M' },
+  'devin:large': { bg: 'bg-red-100', text: 'text-red-800', label: 'L' },
 }
 
 const STATUS_DISPLAY: Record<string, { bg: string; text: string; label: string }> = {
@@ -153,12 +155,49 @@ function EmptyState({ message }: { message: string }) {
   )
 }
 
+function Pagination({ current, total, onPage }: { current: number; total: number; onPage: (p: number) => void }) {
+  return (
+    <div className="mt-3 flex items-center justify-center gap-2">
+      <button
+        onClick={() => onPage(current - 1)}
+        disabled={current <= 1}
+        className="rounded-md px-2 py-1 text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:hover:bg-transparent"
+      >
+        Prev
+      </button>
+      <span className="text-sm text-gray-500">
+        {current} / {total}
+      </span>
+      <button
+        onClick={() => onPage(current + 1)}
+        disabled={current >= total}
+        className="rounded-md px-2 py-1 text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:hover:bg-transparent"
+      >
+        Next
+      </button>
+    </div>
+  )
+}
+
 // ── Main App ──
 
 function App() {
   const [days, setDays] = useState(7)
+  const [attentionPage, setAttentionPage] = useState(1)
+  const [progressPage, setProgressPage] = useState(1)
   const { data: metrics, isLoading: metricsLoading, error: metricsError } = useMetrics(days)
   const { data: lists, isLoading: listsLoading, error: listsError } = useLists()
+
+  const attentionTotal = lists ? Math.ceil(lists.needs_attention.length / PAGE_SIZE) : 1
+  const progressTotal = lists ? Math.ceil(lists.in_progress.length / PAGE_SIZE) : 1
+
+  useEffect(() => {
+    if (attentionPage > attentionTotal) setAttentionPage(Math.max(1, attentionTotal))
+  }, [attentionPage, attentionTotal])
+
+  useEffect(() => {
+    if (progressPage > progressTotal) setProgressPage(Math.max(1, progressTotal))
+  }, [progressPage, progressTotal])
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -219,7 +258,7 @@ function App() {
         </section>
 
         {/* Lists */}
-        <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-2">
+        <div className="mt-8 space-y-8">
           {/* Needs Attention */}
           <section>
             <div className="mb-3 flex items-center gap-2">
@@ -246,11 +285,20 @@ function App() {
               <EmptyState message="Nothing needs your attention right now." />
             )}
             {lists && lists.needs_attention.length > 0 && (
-              <div className="space-y-2">
-                {lists.needs_attention.map((issue) => (
-                  <IssueRow key={issue.number} issue={issue} />
-                ))}
-              </div>
+              <>
+                <div className="space-y-2">
+                  {lists.needs_attention.slice((attentionPage - 1) * PAGE_SIZE, attentionPage * PAGE_SIZE).map((issue) => (
+                    <IssueRow key={issue.number} issue={issue} />
+                  ))}
+                </div>
+                {lists.needs_attention.length > PAGE_SIZE && (
+                  <Pagination
+                    current={attentionPage}
+                    total={Math.ceil(lists.needs_attention.length / PAGE_SIZE)}
+                    onPage={setAttentionPage}
+                  />
+                )}
+              </>
             )}
           </section>
 
@@ -280,11 +328,20 @@ function App() {
               <EmptyState message="No issues being worked on right now." />
             )}
             {lists && lists.in_progress.length > 0 && (
-              <div className="space-y-2">
-                {lists.in_progress.map((issue) => (
-                  <IssueRow key={issue.number} issue={issue} />
-                ))}
-              </div>
+              <>
+                <div className="space-y-2">
+                  {lists.in_progress.slice((progressPage - 1) * PAGE_SIZE, progressPage * PAGE_SIZE).map((issue) => (
+                    <IssueRow key={issue.number} issue={issue} />
+                  ))}
+                </div>
+                {lists.in_progress.length > PAGE_SIZE && (
+                  <Pagination
+                    current={progressPage}
+                    total={Math.ceil(lists.in_progress.length / PAGE_SIZE)}
+                    onPage={setProgressPage}
+                  />
+                )}
+              </>
             )}
           </section>
         </div>

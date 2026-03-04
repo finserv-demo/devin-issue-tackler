@@ -16,9 +16,9 @@ class DevinStatus(StrEnum):
 class DevinSizing(StrEnum):
     """Informational sizing labels — persists for issue lifetime."""
 
-    GREEN = "devin:green"  # <2 hours junior engineer effort
-    YELLOW = "devin:yellow"  # 2-8 hours, single service
-    RED = "devin:red"  # >1 day, multiple services
+    SMALL = "devin:small"  # <2 hours junior engineer effort
+    MEDIUM = "devin:medium"  # 2-8 hours, single service
+    LARGE = "devin:large"  # >1 day, multiple services
 
 
 class DevinControl(StrEnum):
@@ -54,9 +54,9 @@ LABEL_DEFINITIONS: dict[str, str] = {
     "devin:pr-ready": "0e8a16",
     "devin:done": "0e8a16",
     "devin:escalated": "d93f0b",
-    "devin:green": "c5f015",
-    "devin:yellow": "fbca04",
-    "devin:red": "d93f0b",
+    "devin:small": "c5f015",
+    "devin:medium": "fbca04",
+    "devin:large": "d93f0b",
     "devin:skip": "cccccc",
 }
 

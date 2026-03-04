@@ -153,7 +153,7 @@ async def test_remove_all_devin_labels(client: GitHubClient, httpx_mock: HTTPXMo
     httpx_mock.add_response(
         url=f"{BASE}/issues/42/labels",
         method="GET",
-        json=[{"name": "bug"}, {"name": "devin:triage"}, {"name": "devin:green"}],
+        json=[{"name": "bug"}, {"name": "devin:triage"}, {"name": "devin:small"}],
     )
     httpx_mock.add_response(
         url=f"{BASE}/issues/42/labels/devin:triage",
@@ -161,7 +161,7 @@ async def test_remove_all_devin_labels(client: GitHubClient, httpx_mock: HTTPXMo
         json=[],
     )
     httpx_mock.add_response(
-        url=f"{BASE}/issues/42/labels/devin:green",
+        url=f"{BASE}/issues/42/labels/devin:small",
         method="DELETE",
         json=[],
     )
