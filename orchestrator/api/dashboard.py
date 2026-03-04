@@ -332,21 +332,27 @@ async def _enrich_pr_issue(
     """Fetch PR metadata for an issue in a PR stage.
 
     Returns a dict with pr_url, ci_status, and unresolved_review_threads.
+    Catches all exceptions so a single issue's enrichment failure
+    doesn't take down the entire /lists endpoint.
     """
-    pr = await _find_linked_pr(client, repo, token, issue["number"])
-    if pr is None:
+    try:
+        pr = await _find_linked_pr(client, repo, token, issue["number"])
+        if pr is None:
+            return {"pr_url": None, "ci_status": None, "unresolved_review_threads": None}
+
+        ci_status, thread_count = await asyncio.gather(
+            _fetch_ci_status(client, repo, token, pr["head_sha"]),
+            _fetch_unresolved_review_threads(client, repo, token, pr["number"]),
+        )
+
+        return {
+            "pr_url": pr["html_url"],
+            "ci_status": ci_status,
+            "unresolved_review_threads": thread_count,
+        }
+    except Exception:
+        logger.warning("Failed to enrich PR data for issue #%d", issue.get("number", 0))
         return {"pr_url": None, "ci_status": None, "unresolved_review_threads": None}
-
-    ci_status, thread_count = await asyncio.gather(
-        _fetch_ci_status(client, repo, token, pr["head_sha"]),
-        _fetch_unresolved_review_threads(client, repo, token, pr["number"]),
-    )
-
-    return {
-        "pr_url": pr["html_url"],
-        "ci_status": ci_status,
-        "unresolved_review_threads": thread_count,
-    }
 
 
 def _issue_to_item(
