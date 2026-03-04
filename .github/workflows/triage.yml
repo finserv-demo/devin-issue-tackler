@@ -18,7 +18,8 @@ jobs:
       !contains(github.event.issue.labels.*.name, 'devin:triage') &&
       !contains(github.event.issue.labels.*.name, 'devin:triaged') &&
       !contains(github.event.issue.labels.*.name, 'devin:implement') &&
-      !contains(github.event.issue.labels.*.name, 'devin:pr-opened') &&
+      !contains(github.event.issue.labels.*.name, 'devin:pr-in-progress') &&
+      !contains(github.event.issue.labels.*.name, 'devin:pr-ready') &&
       !contains(github.event.issue.labels.*.name, 'devin:done') &&
       !contains(github.event.issue.labels.*.name, 'devin:escalated')
     runs-on: ubuntu-latest

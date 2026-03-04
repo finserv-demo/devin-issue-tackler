@@ -1,0 +1,168 @@
+name: PR Status Sync
+
+# Automatically swap devin:pr-in-progress <-> devin:pr-ready based on
+# CI check results and unresolved review comments. This keeps the
+# dashboard accurate without relying on the implement playbook to
+# self-report readiness.
+
+on:
+  check_suite:
+    types: [completed]
+  pull_request_review:
+    types: [submitted, dismissed]
+  issue_comment:
+    types: [created]
+
+jobs:
+  sync-pr-label:
+    # Only run for events related to pull requests
+    if: >-
+      (github.event_name == 'check_suite' && github.event.check_suite.pull_requests[0]) ||
+      github.event_name == 'pull_request_review' ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request)
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: read
+      checks: read
+    steps:
+      - name: Resolve PR number
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ github.event_name }}" = "check_suite" ]; then
+            pr_number="${{ github.event.check_suite.pull_requests[0].number }}"
+          elif [ "${{ github.event_name }}" = "pull_request_review" ]; then
+            pr_number="${{ github.event.pull_request.number }}"
+          else
+            pr_number="${{ github.event.issue.number }}"
+          fi
+          echo "pr_number=${pr_number}" >> "$GITHUB_OUTPUT"
+
+          if [ -z "$pr_number" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Find the linked issue number from the PR body (looks for "Closes #N" or "Fixes #N")
+          pr_body=$(gh pr view "$pr_number" --repo "${{ github.repository }}" --json body -q '.body' 2>/dev/null || echo "")
+          issue_number=$(echo "$pr_body" | grep -oiP '(?:closes|fixes|resolves)\s+#\K\d+' | head -1 || true)
+
+          if [ -z "$issue_number" ]; then
+            echo "No linked issue found in PR #${pr_number}"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "issue_number=${issue_number}" >> "$GITHUB_OUTPUT"
+
+          # Check if the issue has devin:pr-in-progress or devin:pr-ready
+          labels=$(gh issue view "$issue_number" --repo "${{ github.repository }}" --json labels -q '.labels[].name' 2>/dev/null || echo "")
+          has_in_progress=$(echo "$labels" | grep "^devin:pr-in-progress$" || true)
+          has_ready=$(echo "$labels" | grep "^devin:pr-ready$" || true)
+
+          if [ -z "$has_in_progress" ] && [ -z "$has_ready" ]; then
+            echo "Issue #${issue_number} has neither pr-in-progress nor pr-ready label"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "current_in_progress=$( [ -n \"$has_in_progress\" ] && echo true || echo false )" >> "$GITHUB_OUTPUT"
+          echo "current_ready=$( [ -n \"$has_ready\" ] && echo true || echo false )" >> "$GITHUB_OUTPUT"
+
+      - name: Check CI and review status
+        if: steps.pr.outputs.skip != 'true'
+        id: status
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          pr_number="${{ steps.pr.outputs.pr_number }}"
+          repo="${{ github.repository }}"
+
+          # Check CI status — all checks must pass
+          # Use the combined status + check runs to determine overall CI state
+          check_runs=$(gh pr checks "$pr_number" --repo "$repo" 2>/dev/null || echo "")
+
+          ci_ok=true
+          ci_pending=false
+
+          if [ -z "$check_runs" ]; then
+            # No checks at all — treat as pending
+            ci_pending=true
+            ci_ok=false
+          else
+            # Parse check run results — look for any failures or pending checks
+            # Exclude this workflow's own check to avoid circular dependency
+            while IFS=$'\t' read -r name status _; do
+              # Skip empty lines
+              [ -z "$name" ] && continue
+              # Skip this workflow's own check
+              [ "$name" = "sync-pr-label" ] && continue
+
+              case "$status" in
+                pass|"") ;;  # passed or no status
+                fail)
+                  ci_ok=false
+                  ;;
+                pending)
+                  ci_pending=true
+                  ci_ok=false
+                  ;;
+              esac
+            done <<< "$check_runs"
+          fi
+
+          # Check for unresolved review comments
+          # Fetch reviews and look for CHANGES_REQUESTED that haven't been followed by APPROVED
+          reviews=$(gh pr view "$pr_number" --repo "$repo" --json reviews -q '
+            [.reviews[] | select(.state == "CHANGES_REQUESTED" or .state == "APPROVED")] |
+            group_by(.author.login) |
+            map(last) |
+            map(select(.state == "CHANGES_REQUESTED")) |
+            length' 2>/dev/null || echo "0")
+
+          has_unresolved_reviews=$([ "$reviews" -gt 0 ] && echo true || echo false)
+
+          # Determine target state
+          if [ "$ci_ok" = "true" ] && [ "$has_unresolved_reviews" = "false" ]; then
+            target="ready"
+          else
+            target="in-progress"
+          fi
+
+          echo "ci_ok=${ci_ok}" >> "$GITHUB_OUTPUT"
+          echo "ci_pending=${ci_pending}" >> "$GITHUB_OUTPUT"
+          echo "has_unresolved_reviews=${has_unresolved_reviews}" >> "$GITHUB_OUTPUT"
+          echo "target=${target}" >> "$GITHUB_OUTPUT"
+
+      - name: Swap to devin:pr-ready
+        if: >-
+          steps.pr.outputs.skip != 'true' &&
+          steps.status.outputs.target == 'ready' &&
+          steps.pr.outputs.current_in_progress == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          issue="${{ steps.pr.outputs.issue_number }}"
+          repo="${{ github.repository }}"
+          gh issue edit "$issue" --repo "$repo" \
+            --remove-label "devin:pr-in-progress" \
+            --add-label "devin:pr-ready" 2>/dev/null || true
+          echo "Swapped issue #${issue} to devin:pr-ready"
+
+      - name: Revert to devin:pr-in-progress
+        if: >-
+          steps.pr.outputs.skip != 'true' &&
+          steps.status.outputs.target == 'in-progress' &&
+          steps.pr.outputs.current_ready == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          issue="${{ steps.pr.outputs.issue_number }}"
+          repo="${{ github.repository }}"
+          gh issue edit "$issue" --repo "$repo" \
+            --remove-label "devin:pr-ready" \
+            --add-label "devin:pr-in-progress" 2>/dev/null || true
+          echo "Reverted issue #${issue} to devin:pr-in-progress"

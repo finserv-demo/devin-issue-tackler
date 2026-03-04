@@ -12,7 +12,8 @@ const SIZING_COLORS: Record<string, { bg: string; text: string; label: string }>
 
 const STATUS_DISPLAY: Record<string, { bg: string; text: string; label: string }> = {
   'devin:triaged': { bg: 'bg-blue-100', text: 'text-blue-800', label: 'Awaiting Input' },
-  'devin:pr-opened': { bg: 'bg-purple-100', text: 'text-purple-800', label: 'PR Ready' },
+  'devin:pr-in-progress': { bg: 'bg-purple-100', text: 'text-purple-800', label: 'PR In Progress' },
+  'devin:pr-ready': { bg: 'bg-green-100', text: 'text-green-800', label: 'PR Ready' },
   'devin:escalated': { bg: 'bg-red-100', text: 'text-red-800', label: 'Escalated' },
   'devin:triage': { bg: 'bg-sky-100', text: 'text-sky-800', label: 'Triaging' },
   'devin:implement': { bg: 'bg-violet-100', text: 'text-violet-800', label: 'Implementing' },

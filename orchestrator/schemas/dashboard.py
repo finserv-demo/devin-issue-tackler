@@ -27,10 +27,10 @@ class IssueItem(BaseModel):
     number: int
     title: str
     html_url: str  # GitHub issue URL
-    status_label: str  # e.g. "devin:triaged", "devin:pr-opened"
+    status_label: str  # e.g. "devin:triaged", "devin:pr-ready"
     sizing_label: str | None = None  # e.g. "devin:green", "devin:yellow", "devin:red"
     time_in_state: str = ""  # e.g. "2h ago", "3d ago"
-    pr_url: str | None = None  # For pr-opened issues, link to the PR
+    pr_url: str | None = None  # For PR issues, link to the PR
     created_at: str = ""
 
 

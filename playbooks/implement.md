@@ -56,7 +56,7 @@ Re-read everything. Make sure you understand the full scope before writing code.
 
 8. Post a comment on the issue with the PR link.
 
-9. Swap label: `devin:implement` → `devin:pr-opened`
+9. Swap label: `devin:implement` → `devin:pr-in-progress`
 
 ### Verification
 - All affected files and callers/callees updated
@@ -84,10 +84,10 @@ Re-read everything. Make sure you understand the full scope before writing code.
 5. If actionable feedback: fix, push, wait for CI again. Repeat (up to 3 total fix
    cycles for CI/review failures).
 
-6. **If all clean after iteration**: swap label `devin:pr-opened` → `devin:done`.
+6. **If all clean after iteration**: swap label `devin:pr-in-progress` → `devin:done`.
    Post a brief comment on the issue confirming the PR is ready for human merge.
 
-7. **If stuck after 5 fix attempts**: swap label `devin:pr-opened` → `devin:escalated`.
+7. **If stuck after 5 fix attempts**: swap label `devin:pr-in-progress` → `devin:escalated`.
    Post a comment on the issue summarizing:
    - What's failing
    - What you tried
