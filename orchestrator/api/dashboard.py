@@ -137,6 +137,56 @@ def _find_label_added_time(events: list[dict], target_label: str) -> str | None:
     return latest
 
 
+async def _fetch_issue_timeline(
+    client: httpx.AsyncClient,
+    repo: str,
+    token: str,
+    issue_number: int,
+) -> list[dict]:
+    """Fetch timeline events for a single issue."""
+    all_events: list[dict] = []
+    page = 1
+    while True:
+        resp = await client.get(
+            f"{_GITHUB_API}/repos/{repo}/issues/{issue_number}/timeline",
+            headers=_github_headers(token),
+            params={"per_page": 100, "page": page},
+            timeout=30.0,
+        )
+        resp.raise_for_status()
+        items = resp.json()
+        if not items:
+            break
+        all_events.extend(items)
+        if len(items) < 100:
+            break
+        page += 1
+    return all_events
+
+
+async def _fetch_triage_start_times(
+    client: httpx.AsyncClient,
+    repo: str,
+    token: str,
+    issues: list[dict],
+) -> dict[int, str | None]:
+    """Fetch the devin:triage label timestamp for each issue, concurrently.
+
+    Returns a dict mapping issue number -> ISO timestamp (or None if not found).
+    """
+    async def _get_triage_time(issue: dict) -> tuple[int, str | None]:
+        number = issue["number"]
+        try:
+            events = await _fetch_issue_timeline(client, repo, token, number)
+            return number, _find_label_added_time(events, "devin:triage")
+        except httpx.HTTPStatusError:
+            logger.warning("Failed to fetch timeline for issue #%d", number)
+            return number, None
+
+    results = await asyncio.gather(*[_get_triage_time(issue) for issue in issues])
+    return dict(results)
+
+
 def _format_duration(delta: timedelta) -> str:
     """Format a timedelta as a human-readable string like '2.3d' or '4.1h'."""
     total_hours = delta.total_seconds() / 3600
@@ -175,8 +225,12 @@ async def compute_metrics(settings: Settings, time_window_days: int = 7) -> Dash
 
     Fetches closed issues with devin:done label and computes:
     1. Issues resolved in current period + w/w change
-    2. Median time to resolution + w/w change
+    2. Median time to resolution (from devin:triage label → close) + w/w change
     3. % resolved within 1 week of triage
+
+    Resolution time is measured from when the devin:triage label was applied
+    (fetched via timeline events) to when the issue was closed. Falls back to
+    created_at if the triage label event is not found.
     """
     repo = settings.target_repo
     token = settings.github_token
@@ -188,6 +242,9 @@ async def compute_metrics(settings: Settings, time_window_days: int = 7) -> Dash
     async with httpx.AsyncClient() as client:
         # Fetch all closed issues with devin:done
         done_issues = await _fetch_issues_by_label(client, repo, token, "devin:done", state="closed")
+
+        # Fetch when devin:triage was applied to each issue (timer start)
+        triage_times = await _fetch_triage_start_times(client, repo, token, done_issues)
 
     # Split into current and previous periods
     current_resolved: list[dict] = []
@@ -221,16 +278,19 @@ async def compute_metrics(settings: Settings, time_window_days: int = 7) -> Dash
 
     period_label = "this week" if time_window_days == 7 else "this month"
 
-    # 2. Median time to resolution
+    # 2. Median time to resolution (from devin:triage label → closed_at)
     def _resolution_time(issue: dict) -> timedelta | None:
-        created = issue.get("created_at", "")
+        # Use the devin:triage label timestamp as the start time.
+        # Fall back to created_at if the triage label was never found.
+        triage_time_str = triage_times.get(issue["number"])
+        start = triage_time_str or issue.get("created_at", "")
         closed = issue.get("closed_at", "")
-        if not created or not closed:
+        if not start or not closed:
             return None
         try:
-            c = datetime.fromisoformat(created.replace("Z", "+00:00"))
+            s = datetime.fromisoformat(start.replace("Z", "+00:00"))
             d = datetime.fromisoformat(closed.replace("Z", "+00:00"))
-            return d - c
+            return d - s
         except ValueError:
             return None
 
@@ -282,7 +342,7 @@ async def compute_metrics(settings: Settings, time_window_days: int = 7) -> Dash
             sentiment=resolved_sentiment,
         ),
         median_resolution_time=MetricCard(
-            label="Median Resolution Time",
+            label=f"Median Resolution Time ({period_label})",
             value=median_str,
             subtitle=median_subtitle,
             sentiment=median_sentiment,
