@@ -38,7 +38,7 @@ VALID_TRANSITIONS: dict[str | None, list[DevinStatus]] = {
     DevinStatus.TRIAGE: [DevinStatus.TRIAGED],
     DevinStatus.TRIAGED: [DevinStatus.IMPLEMENT, DevinStatus.TRIAGE],
     DevinStatus.IMPLEMENT: [DevinStatus.PR_OPENED, DevinStatus.ESCALATED],
-    DevinStatus.PR_OPENED: [DevinStatus.DONE, DevinStatus.ESCALATED],
+    DevinStatus.PR_OPENED: [DevinStatus.DONE, DevinStatus.ESCALATED, DevinStatus.TRIAGED],
     DevinStatus.ESCALATED: [DevinStatus.TRIAGE, DevinStatus.IMPLEMENT],
     DevinStatus.DONE: [],
 }
