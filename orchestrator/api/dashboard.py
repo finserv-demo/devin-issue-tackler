@@ -209,14 +209,8 @@ async def _find_linked_pr(
     Returns the PR dict (with number, html_url, head sha) or None.
     """
     try:
-        resp = await client.get(
-            f"{_GITHUB_API}/repos/{repo}/issues/{issue_number}/timeline",
-            headers=_github_headers(token),
-            params={"per_page": 100},
-            timeout=30.0,
-        )
-        resp.raise_for_status()
-        for event in resp.json():
+        events = await _fetch_issue_timeline(client, repo, token, issue_number)
+        for event in events:
             # cross-referenced events from PRs that mention "Closes #N"
             if event.get("event") == "cross-referenced":
                 source = event.get("source", {}).get("issue", {})
