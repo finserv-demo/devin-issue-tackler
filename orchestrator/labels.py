@@ -7,7 +7,8 @@ class DevinStatus(StrEnum):
     TRIAGE = "devin:triage"
     TRIAGED = "devin:triaged"
     IMPLEMENT = "devin:implement"
-    PR_OPENED = "devin:pr-opened"
+    PR_IN_PROGRESS = "devin:pr-in-progress"
+    PR_READY = "devin:pr-ready"
     DONE = "devin:done"
     ESCALATED = "devin:escalated"
 
@@ -37,8 +38,9 @@ VALID_TRANSITIONS: dict[str | None, list[DevinStatus]] = {
     None: [DevinStatus.TRIAGE],
     DevinStatus.TRIAGE: [DevinStatus.TRIAGED],
     DevinStatus.TRIAGED: [DevinStatus.IMPLEMENT, DevinStatus.TRIAGE],
-    DevinStatus.IMPLEMENT: [DevinStatus.PR_OPENED, DevinStatus.ESCALATED],
-    DevinStatus.PR_OPENED: [DevinStatus.DONE, DevinStatus.ESCALATED, DevinStatus.TRIAGED],
+    DevinStatus.IMPLEMENT: [DevinStatus.PR_IN_PROGRESS, DevinStatus.ESCALATED],
+    DevinStatus.PR_IN_PROGRESS: [DevinStatus.PR_READY, DevinStatus.ESCALATED, DevinStatus.TRIAGED],
+    DevinStatus.PR_READY: [DevinStatus.PR_IN_PROGRESS, DevinStatus.DONE, DevinStatus.ESCALATED, DevinStatus.TRIAGED],
     DevinStatus.ESCALATED: [DevinStatus.TRIAGE, DevinStatus.IMPLEMENT],
     DevinStatus.DONE: [],
 }
@@ -48,7 +50,8 @@ LABEL_DEFINITIONS: dict[str, str] = {
     "devin:triage": "1d76db",
     "devin:triaged": "0e8a16",
     "devin:implement": "5319e7",
-    "devin:pr-opened": "f9d0c4",
+    "devin:pr-in-progress": "f9d0c4",
+    "devin:pr-ready": "0e8a16",
     "devin:done": "0e8a16",
     "devin:escalated": "d93f0b",
     "devin:green": "c5f015",

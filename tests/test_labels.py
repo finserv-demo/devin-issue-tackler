@@ -28,25 +28,42 @@ def test_valid_transition_triaged_to_triage() -> None:
     assert is_valid_transition(DevinStatus.TRIAGED, DevinStatus.TRIAGE) is True
 
 
-def test_valid_transition_implement_to_pr_opened() -> None:
-    assert is_valid_transition(DevinStatus.IMPLEMENT, DevinStatus.PR_OPENED) is True
+def test_valid_transition_implement_to_pr_in_progress() -> None:
+    assert is_valid_transition(DevinStatus.IMPLEMENT, DevinStatus.PR_IN_PROGRESS) is True
 
 
 def test_valid_transition_implement_to_escalated() -> None:
     assert is_valid_transition(DevinStatus.IMPLEMENT, DevinStatus.ESCALATED) is True
 
 
-def test_valid_transition_pr_opened_to_done() -> None:
-    assert is_valid_transition(DevinStatus.PR_OPENED, DevinStatus.DONE) is True
+def test_valid_transition_pr_in_progress_to_pr_ready() -> None:
+    assert is_valid_transition(DevinStatus.PR_IN_PROGRESS, DevinStatus.PR_READY) is True
 
 
-def test_valid_transition_pr_opened_to_escalated() -> None:
-    assert is_valid_transition(DevinStatus.PR_OPENED, DevinStatus.ESCALATED) is True
+def test_valid_transition_pr_in_progress_to_escalated() -> None:
+    assert is_valid_transition(DevinStatus.PR_IN_PROGRESS, DevinStatus.ESCALATED) is True
 
 
-def test_valid_transition_pr_opened_to_triaged() -> None:
+def test_valid_transition_pr_ready_to_done() -> None:
+    assert is_valid_transition(DevinStatus.PR_READY, DevinStatus.DONE) is True
+
+
+def test_valid_transition_pr_ready_to_escalated() -> None:
+    assert is_valid_transition(DevinStatus.PR_READY, DevinStatus.ESCALATED) is True
+
+
+def test_valid_transition_pr_ready_to_pr_in_progress() -> None:
+    assert is_valid_transition(DevinStatus.PR_READY, DevinStatus.PR_IN_PROGRESS) is True
+
+
+def test_valid_transition_pr_in_progress_to_triaged() -> None:
     """PR closed without merge should allow transitioning back to triaged."""
-    assert is_valid_transition(DevinStatus.PR_OPENED, DevinStatus.TRIAGED) is True
+    assert is_valid_transition(DevinStatus.PR_IN_PROGRESS, DevinStatus.TRIAGED) is True
+
+
+def test_valid_transition_pr_ready_to_triaged() -> None:
+    """PR closed without merge should allow transitioning back to triaged."""
+    assert is_valid_transition(DevinStatus.PR_READY, DevinStatus.TRIAGED) is True
 
 
 def test_valid_transition_escalated_to_triage() -> None:
@@ -142,5 +159,5 @@ def test_all_status_labels_in_valid_transitions() -> None:
 
 
 def test_label_definition_count() -> None:
-    """Should have exactly 10 label definitions (6 status + 3 sizing + 1 control)."""
-    assert len(LABEL_DEFINITIONS) == 10
+    """Should have exactly 11 label definitions (7 status + 3 sizing + 1 control)."""
+    assert len(LABEL_DEFINITIONS) == 11

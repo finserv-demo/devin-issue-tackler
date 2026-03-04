@@ -118,7 +118,8 @@ def _extract_status(labels: list[dict]) -> str:
             "devin:triage",
             "devin:triaged",
             "devin:implement",
-            "devin:pr-opened",
+            "devin:pr-in-progress",
+            "devin:pr-ready",
             "devin:done",
             "devin:escalated",
         ):
@@ -358,8 +359,8 @@ async def compute_metrics(settings: Settings, time_window_days: int = 7) -> Dash
 async def compute_lists(settings: Settings) -> DashboardLists:
     """Compute the attention and in-progress lists.
 
-    Attention: issues with devin:triaged, devin:pr-opened, devin:escalated
-    In Progress: issues with devin:triage, devin:implement
+    Attention: issues with devin:triaged, devin:pr-ready, devin:escalated
+    In Progress: issues with devin:triage, devin:implement, devin:pr-in-progress
     """
     repo = settings.target_repo
     token = settings.github_token
@@ -370,23 +371,23 @@ async def compute_lists(settings: Settings) -> DashboardLists:
                 client,
                 repo,
                 token,
-                ["devin:triaged", "devin:pr-opened", "devin:escalated"],
+                ["devin:triaged", "devin:pr-ready", "devin:escalated"],
             ),
             _fetch_issues_by_labels(
                 client,
                 repo,
                 token,
-                ["devin:triage", "devin:implement"],
+                ["devin:triage", "devin:implement", "devin:pr-in-progress"],
             ),
         )
 
     needs_attention = [_issue_to_item(i) for i in attention_issues]
     in_progress = [_issue_to_item(i) for i in progress_issues]
 
-    # Sort attention: escalated first, then pr-opened, then triaged
+    # Sort attention: escalated first, then pr-ready, then triaged
     status_priority = {
         "devin:escalated": 0,
-        "devin:pr-opened": 1,
+        "devin:pr-ready": 1,
         "devin:triaged": 2,
     }
     needs_attention.sort(key=lambda x: status_priority.get(x.status_label, 99))
