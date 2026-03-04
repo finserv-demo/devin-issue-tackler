@@ -1,0 +1,17 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "cd dashboard && npm install && npm run build",
+  "outputDirectory": "dashboard/dist",
+  "framework": "vite",
+  "rewrites": [
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
+    }
+  ],
+  "functions": {
+    "api/**/*.py": {
+      "excludeFiles": "{tests/**,**/*.test.py,**/test_*.py,dashboard/**,playbooks/**,scripts/**,.github/**}"
+    }
+  }
+}
