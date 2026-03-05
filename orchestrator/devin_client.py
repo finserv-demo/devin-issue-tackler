@@ -63,7 +63,7 @@ class DevinClient:
         url: str,
         *,
         json: dict | list | None = None,
-        params: dict | None = None,
+        params: dict | list[tuple[str, str | int]] | None = None,
     ) -> httpx.Response:
         """Make an HTTP request with retry on 429 (rate limit)."""
         for attempt in range(_MAX_RETRIES):
@@ -151,7 +151,8 @@ class DevinClient:
         """List sessions filtered by tags.
 
         Uses the v1 API's server-side tag filtering via the ?tags= parameter.
-        Multiple tags are comma-separated and all must match (AND logic).
+        Tags are sent as repeated query params (?tags=a&tags=b) so that the
+        API applies AND logic across all of them.
 
         Args:
             tags: List of tags to filter by (all must match).
@@ -159,10 +160,9 @@ class DevinClient:
         Returns:
             List of matching sessions.
         """
-        params: dict[str, str | int] = {
-            "tags": ",".join(tags),
-            "limit": 100,
-        }
+        params: list[tuple[str, str | int]] = [("limit", 100)]
+        for tag in tags:
+            params.append(("tags", tag))
 
         resp = await self._request(
             "GET",
