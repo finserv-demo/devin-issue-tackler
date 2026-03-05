@@ -24,6 +24,7 @@ export interface IssueItem {
   ci_status: string | null
   unresolved_review_threads: number | null
   created_at: string
+  updated_at: string
 }
 
 export interface DashboardLists {

@@ -1,8 +1,98 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useMetrics, useLists } from './api/hooks'
 import type { MetricCard as MetricCardType, IssueItem } from './api/types'
 
 const PAGE_SIZE = 5
+
+// ── Filter/sort types ──
+
+type SizeFilterValue = 'all' | 'S' | 'M' | 'L'
+type SortByValue = 'created_on' | 'last_updated' | 'status' | 'size'
+type SortOrder = 'asc' | 'desc'
+
+const SIZE_ORDER: Record<string, number> = {
+  'devin:small': 1,
+  'devin:medium': 2,
+  'devin:large': 3,
+}
+
+const STATUS_ORDER: Record<string, number> = {
+  'devin:escalated': 0,
+  'devin:pr-ready': 1,
+  'devin:triaged': 2,
+  'devin:triage': 0,
+  'devin:implement': 1,
+  'devin:pr-in-progress': 2,
+}
+
+const ATTENTION_STATUSES = [
+  { value: 'devin:escalated', label: 'Escalated' },
+  { value: 'devin:pr-ready', label: 'PR Ready' },
+  { value: 'devin:triaged', label: 'Awaiting Input' },
+] as const
+
+const PROGRESS_STATUSES = [
+  { value: 'devin:triage', label: 'Triaging' },
+  { value: 'devin:implement', label: 'Implementing' },
+  { value: 'devin:pr-in-progress', label: 'PR In Progress' },
+] as const
+
+const SIZE_FILTER_TO_LABEL: Record<string, string> = {
+  S: 'devin:small',
+  M: 'devin:medium',
+  L: 'devin:large',
+}
+
+function applyFiltersAndSort(
+  items: IssueItem[],
+  sizeFilter: SizeFilterValue,
+  statusFilter: string,
+  sortBy: SortByValue,
+  sortOrder: SortOrder,
+): IssueItem[] {
+  let result = items
+
+  if (sizeFilter !== 'all') {
+    const target = SIZE_FILTER_TO_LABEL[sizeFilter]
+    result = result.filter((i) => i.sizing_label === target)
+  }
+  if (statusFilter !== 'all') {
+    result = result.filter((i) => i.status_label === statusFilter)
+  }
+
+  result = [...result].sort((a, b) => {
+    let cmp = 0
+    switch (sortBy) {
+      case 'created_on': {
+        const aDate = a.created_at || ''
+        const bDate = b.created_at || ''
+        cmp = aDate.localeCompare(bDate)
+        break
+      }
+      case 'last_updated': {
+        const aDate = a.updated_at || ''
+        const bDate = b.updated_at || ''
+        cmp = aDate.localeCompare(bDate)
+        break
+      }
+      case 'status': {
+        const aStatus = STATUS_ORDER[a.status_label] ?? 99
+        const bStatus = STATUS_ORDER[b.status_label] ?? 99
+        cmp = aStatus - bStatus
+        break
+      }
+      case 'size': {
+        const aSize = a.sizing_label ? (SIZE_ORDER[a.sizing_label] ?? 99) : 99
+        const bSize = b.sizing_label ? (SIZE_ORDER[b.sizing_label] ?? 99) : 99
+        cmp = aSize - bSize
+        break
+      }
+    }
+    return sortOrder === 'asc' ? cmp : -cmp
+  })
+
+  return result
+}
 
 // ── Sizing badge colors ──
 
@@ -187,6 +277,274 @@ function EmptyState({ message }: { message: string }) {
   )
 }
 
+// ── Dropdown components ──
+
+function useClickOutside(ref: React.RefObject<HTMLDivElement | null>, onClose: () => void) {
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        onClose()
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [ref, onClose])
+}
+
+const CHEVRON_SVG = (
+  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+  </svg>
+)
+
+const CHECK_SVG = (
+  <svg className="h-3 w-3 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+  </svg>
+)
+
+function DropdownButton({
+  label,
+  isOpen,
+  onToggle,
+  isFiltered,
+}: {
+  label: string
+  isOpen: boolean
+  onToggle: () => void
+  isFiltered?: boolean
+}) {
+  return (
+    <button
+      onClick={onToggle}
+      className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors ${
+        isFiltered
+          ? 'border-blue-300 bg-blue-50 text-blue-700'
+          : isOpen
+            ? 'border-gray-300 bg-gray-50 text-gray-900'
+            : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50'
+      }`}
+    >
+      {label}
+      {CHEVRON_SVG}
+    </button>
+  )
+}
+
+function DropdownOption({
+  label,
+  selected,
+  onClick,
+}: {
+  label: string
+  selected: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs ${
+        selected ? 'bg-gray-50 font-medium text-gray-900' : 'text-gray-600 hover:bg-gray-50'
+      }`}
+    >
+      {selected ? CHECK_SVG : <span className="h-3 w-3" />}
+      {label}
+    </button>
+  )
+}
+
+function LabelDropdown({
+  value,
+  onChange,
+}: {
+  value: SizeFilterValue
+  onChange: (v: SizeFilterValue) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useClickOutside(ref, () => setOpen(false))
+
+  const options: { value: SizeFilterValue; label: string }[] = [
+    { value: 'all', label: 'All sizes' },
+    { value: 'S', label: 'S (Small)' },
+    { value: 'M', label: 'M (Medium)' },
+    { value: 'L', label: 'L (Large)' },
+  ]
+
+  const displayLabel = value === 'all' ? 'Label' : options.find((o) => o.value === value)?.label ?? value
+
+  return (
+    <div className="relative" ref={ref}>
+      <DropdownButton
+        label={displayLabel}
+        isOpen={open}
+        onToggle={() => setOpen(!open)}
+        isFiltered={value !== 'all'}
+      />
+      {open && (
+        <div className="absolute right-0 z-10 mt-1 w-40 rounded-md border border-gray-200 bg-white py-1 shadow-lg">
+          {options.map((opt) => (
+            <DropdownOption
+              key={opt.value}
+              label={opt.label}
+              selected={value === opt.value}
+              onClick={() => { onChange(opt.value); setOpen(false) }}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function StatusDropdown({
+  value,
+  onChange,
+  statuses,
+}: {
+  value: string
+  onChange: (v: string) => void
+  statuses: readonly { value: string; label: string }[]
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useClickOutside(ref, () => setOpen(false))
+
+  const allOptions = [{ value: 'all', label: 'All statuses' }, ...statuses]
+  const displayLabel = value === 'all' ? 'Status' : allOptions.find((o) => o.value === value)?.label ?? value
+
+  return (
+    <div className="relative" ref={ref}>
+      <DropdownButton
+        label={displayLabel}
+        isOpen={open}
+        onToggle={() => setOpen(!open)}
+        isFiltered={value !== 'all'}
+      />
+      {open && (
+        <div className="absolute right-0 z-10 mt-1 w-44 rounded-md border border-gray-200 bg-white py-1 shadow-lg">
+          {allOptions.map((opt) => (
+            <DropdownOption
+              key={opt.value}
+              label={opt.label}
+              selected={value === opt.value}
+              onClick={() => { onChange(opt.value); setOpen(false) }}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SortDropdown({
+  sortBy,
+  sortOrder,
+  onSortByChange,
+  onSortOrderChange,
+}: {
+  sortBy: SortByValue
+  sortOrder: SortOrder
+  onSortByChange: (v: SortByValue) => void
+  onSortOrderChange: (v: SortOrder) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useClickOutside(ref, () => setOpen(false))
+
+  const sortByOptions: { value: SortByValue; label: string }[] = [
+    { value: 'created_on', label: 'Created on' },
+    { value: 'last_updated', label: 'Last updated' },
+    { value: 'status', label: 'Status' },
+    { value: 'size', label: 'Size' },
+  ]
+
+  const isTimeBased = sortBy === 'created_on' || sortBy === 'last_updated'
+  const orderOptions: { value: SortOrder; label: string }[] = isTimeBased
+    ? [
+        { value: 'asc', label: 'Oldest' },
+        { value: 'desc', label: 'Newest' },
+      ]
+    : [
+        { value: 'asc', label: 'Ascending' },
+        { value: 'desc', label: 'Descending' },
+      ]
+
+  const currentOrderLabel = orderOptions.find((o) => o.value === sortOrder)?.label ?? ''
+
+  return (
+    <div className="relative" ref={ref}>
+      <DropdownButton
+        label={currentOrderLabel}
+        isOpen={open}
+        onToggle={() => setOpen(!open)}
+      />
+      {open && (
+        <div className="absolute right-0 z-10 mt-1 w-44 rounded-md border border-gray-200 bg-white shadow-lg">
+          {/* Sort by section */}
+          <div className="border-b border-gray-100 px-3 py-1.5">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Sort by</span>
+          </div>
+          <div className="py-1">
+            {sortByOptions.map((opt) => (
+              <DropdownOption
+                key={opt.value}
+                label={opt.label}
+                selected={sortBy === opt.value}
+                onClick={() => onSortByChange(opt.value)}
+              />
+            ))}
+          </div>
+          {/* Order section */}
+          <div className="border-t border-gray-100 px-3 py-1.5">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Order</span>
+          </div>
+          <div className="py-1">
+            {orderOptions.map((opt) => (
+              <DropdownOption
+                key={opt.value}
+                label={opt.label}
+                selected={sortOrder === opt.value}
+                onClick={() => { onSortOrderChange(opt.value); setOpen(false) }}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function FilterSortControls({
+  sizeFilter,
+  onSizeFilter,
+  statusFilter,
+  onStatusFilter,
+  sortBy,
+  onSortBy,
+  sortOrder,
+  onSortOrder,
+  statuses,
+}: {
+  sizeFilter: SizeFilterValue
+  onSizeFilter: (v: SizeFilterValue) => void
+  statusFilter: string
+  onStatusFilter: (v: string) => void
+  sortBy: SortByValue
+  onSortBy: (v: SortByValue) => void
+  sortOrder: SortOrder
+  onSortOrder: (v: SortOrder) => void
+  statuses: readonly { value: string; label: string }[]
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <LabelDropdown value={sizeFilter} onChange={onSizeFilter} />
+      <StatusDropdown value={statusFilter} onChange={onStatusFilter} statuses={statuses} />
+      <SortDropdown sortBy={sortBy} sortOrder={sortOrder} onSortByChange={onSortBy} onSortOrderChange={onSortOrder} />
+    </div>
+  )
+}
+
 function Pagination({ current, total, onPage }: { current: number; total: number; onPage: (p: number) => void }) {
   return (
     <div className="mt-3 flex items-center justify-center gap-2">
@@ -217,11 +575,26 @@ function App() {
   const [days, setDays] = useState(7)
   const [attentionPage, setAttentionPage] = useState(1)
   const [progressPage, setProgressPage] = useState(1)
+  const [attentionSizeFilter, setAttentionSizeFilter] = useState<SizeFilterValue>('all')
+  const [attentionStatusFilter, setAttentionStatusFilter] = useState('all')
+  const [attentionSortBy, setAttentionSortBy] = useState<SortByValue>('created_on')
+  const [attentionSortOrder, setAttentionSortOrder] = useState<SortOrder>('desc')
+  const [progressSizeFilter, setProgressSizeFilter] = useState<SizeFilterValue>('all')
+  const [progressStatusFilter, setProgressStatusFilter] = useState('all')
+  const [progressSortBy, setProgressSortBy] = useState<SortByValue>('created_on')
+  const [progressSortOrder, setProgressSortOrder] = useState<SortOrder>('desc')
   const { data: metrics, isLoading: metricsLoading, error: metricsError } = useMetrics(days)
   const { data: lists, isLoading: listsLoading, error: listsError } = useLists()
 
-  const attentionTotal = lists ? Math.ceil(lists.needs_attention.length / PAGE_SIZE) : 1
-  const progressTotal = lists ? Math.ceil(lists.in_progress.length / PAGE_SIZE) : 1
+  const filteredAttention = lists
+    ? applyFiltersAndSort(lists.needs_attention, attentionSizeFilter, attentionStatusFilter, attentionSortBy, attentionSortOrder)
+    : []
+  const filteredProgress = lists
+    ? applyFiltersAndSort(lists.in_progress, progressSizeFilter, progressStatusFilter, progressSortBy, progressSortOrder)
+    : []
+
+  const attentionTotal = Math.max(1, Math.ceil(filteredAttention.length / PAGE_SIZE))
+  const progressTotal = Math.max(1, Math.ceil(filteredProgress.length / PAGE_SIZE))
 
   useEffect(() => {
     if (attentionPage > attentionTotal) setAttentionPage(Math.max(1, attentionTotal))
@@ -230,6 +603,15 @@ function App() {
   useEffect(() => {
     if (progressPage > progressTotal) setProgressPage(Math.max(1, progressTotal))
   }, [progressPage, progressTotal])
+
+  // Reset pages when filter/sort changes
+  useEffect(() => {
+    setAttentionPage(1)
+  }, [attentionSizeFilter, attentionStatusFilter, attentionSortBy, attentionSortOrder])
+
+  useEffect(() => {
+    setProgressPage(1)
+  }, [progressSizeFilter, progressStatusFilter, progressSortBy, progressSortOrder])
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -293,12 +675,27 @@ function App() {
         <div className="mt-8 space-y-8">
           {/* Needs Attention */}
           <section>
-            <div className="mb-3 flex items-center gap-2">
-              <h2 className="text-base font-semibold text-gray-900">Needs Attention</h2>
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-semibold text-gray-900">Needs Attention</h2>
+                {lists && lists.needs_attention.length > 0 && (
+                    <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-100 px-1.5 text-xs font-medium text-amber-800">
+                      {filteredAttention.length}{(attentionSizeFilter !== 'all' || attentionStatusFilter !== 'all') ? ` / ${lists.needs_attention.length}` : ''}
+                    </span>
+                )}
+              </div>
               {lists && lists.needs_attention.length > 0 && (
-                <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-100 px-1.5 text-xs font-medium text-amber-800">
-                  {lists.needs_attention.length}
-                </span>
+                <FilterSortControls
+                  sizeFilter={attentionSizeFilter}
+                  onSizeFilter={setAttentionSizeFilter}
+                  statusFilter={attentionStatusFilter}
+                  onStatusFilter={setAttentionStatusFilter}
+                  sortBy={attentionSortBy}
+                  onSortBy={setAttentionSortBy}
+                  sortOrder={attentionSortOrder}
+                  onSortOrder={setAttentionSortOrder}
+                  statuses={ATTENTION_STATUSES}
+                />
               )}
             </div>
             {listsLoading && (
@@ -316,17 +713,20 @@ function App() {
             {lists && lists.needs_attention.length === 0 && (
               <EmptyState message="Nothing needs your attention right now." />
             )}
-            {lists && lists.needs_attention.length > 0 && (
+            {lists && lists.needs_attention.length > 0 && filteredAttention.length === 0 && (
+              <EmptyState message="No issues match the selected filters." />
+            )}
+            {filteredAttention.length > 0 && (
               <>
                 <div className="space-y-2">
-                  {lists.needs_attention.slice((attentionPage - 1) * PAGE_SIZE, attentionPage * PAGE_SIZE).map((issue) => (
+                  {filteredAttention.slice((attentionPage - 1) * PAGE_SIZE, attentionPage * PAGE_SIZE).map((issue) => (
                     <IssueRow key={issue.number} issue={issue} />
                   ))}
                 </div>
-                {lists.needs_attention.length > PAGE_SIZE && (
+                {filteredAttention.length > PAGE_SIZE && (
                   <Pagination
                     current={attentionPage}
-                    total={Math.ceil(lists.needs_attention.length / PAGE_SIZE)}
+                    total={Math.ceil(filteredAttention.length / PAGE_SIZE)}
                     onPage={setAttentionPage}
                   />
                 )}
@@ -336,12 +736,27 @@ function App() {
 
           {/* In Progress */}
           <section>
-            <div className="mb-3 flex items-center gap-2">
-              <h2 className="text-base font-semibold text-gray-900">In Progress</h2>
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-semibold text-gray-900">In Progress</h2>
+                {lists && lists.in_progress.length > 0 && (
+                    <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-sky-100 px-1.5 text-xs font-medium text-sky-800">
+                      {filteredProgress.length}{(progressSizeFilter !== 'all' || progressStatusFilter !== 'all') ? ` / ${lists.in_progress.length}` : ''}
+                    </span>
+                )}
+              </div>
               {lists && lists.in_progress.length > 0 && (
-                <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-sky-100 px-1.5 text-xs font-medium text-sky-800">
-                  {lists.in_progress.length}
-                </span>
+                <FilterSortControls
+                  sizeFilter={progressSizeFilter}
+                  onSizeFilter={setProgressSizeFilter}
+                  statusFilter={progressStatusFilter}
+                  onStatusFilter={setProgressStatusFilter}
+                  sortBy={progressSortBy}
+                  onSortBy={setProgressSortBy}
+                  sortOrder={progressSortOrder}
+                  onSortOrder={setProgressSortOrder}
+                  statuses={PROGRESS_STATUSES}
+                />
               )}
             </div>
             {listsLoading && (
@@ -359,17 +774,20 @@ function App() {
             {lists && lists.in_progress.length === 0 && (
               <EmptyState message="No issues being worked on right now." />
             )}
-            {lists && lists.in_progress.length > 0 && (
+            {lists && lists.in_progress.length > 0 && filteredProgress.length === 0 && (
+              <EmptyState message="No issues match the selected filters." />
+            )}
+            {filteredProgress.length > 0 && (
               <>
                 <div className="space-y-2">
-                  {lists.in_progress.slice((progressPage - 1) * PAGE_SIZE, progressPage * PAGE_SIZE).map((issue) => (
+                  {filteredProgress.slice((progressPage - 1) * PAGE_SIZE, progressPage * PAGE_SIZE).map((issue) => (
                     <IssueRow key={issue.number} issue={issue} />
                   ))}
                 </div>
-                {lists.in_progress.length > PAGE_SIZE && (
+                {filteredProgress.length > PAGE_SIZE && (
                   <Pagination
                     current={progressPage}
-                    total={Math.ceil(lists.in_progress.length / PAGE_SIZE)}
+                    total={Math.ceil(filteredProgress.length / PAGE_SIZE)}
                     onPage={setProgressPage}
                   />
                 )}
