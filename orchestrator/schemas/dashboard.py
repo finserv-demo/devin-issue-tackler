@@ -36,6 +36,8 @@ class IssueItem(BaseModel):
     unresolved_review_threads: int | None = None  # Count of unresolved review threads
     created_at: str = ""
     updated_at: str = ""
+    acus_consumed: float | None = None
+    devin_latest_message: str | None = None
 
 
 class DashboardLists(BaseModel):

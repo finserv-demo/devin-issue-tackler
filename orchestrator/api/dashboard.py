@@ -13,12 +13,16 @@ from typing import Any
 import httpx
 
 from orchestrator.config import Settings
+from orchestrator.devin_client import DevinClient
 from orchestrator.schemas.dashboard import (
     DashboardLists,
     DashboardMetrics,
     IssueItem,
     MetricCard,
 )
+from orchestrator.schemas.devin import DevinSession
+
+_LATEST_MESSAGE_MAX_LENGTH = 200
 
 logger = logging.getLogger(__name__)
 
@@ -372,9 +376,76 @@ async def _enrich_pr_issue(
         return {"pr_url": None, "ci_status": None, "unresolved_review_threads": None}
 
 
+async def _fetch_devin_sessions_for_issues(
+    devin_client: DevinClient,
+    issue_numbers: list[int],
+) -> dict[int, list[DevinSession]]:
+    """Fetch Devin sessions for multiple issues concurrently.
+
+    Returns a dict mapping issue number -> list of DevinSession objects.
+    This shared cache avoids redundant API calls when both ACU cost (#43)
+    and latest message (#42) enrichment are needed for the same issues.
+    """
+
+    async def _get_sessions(issue_number: int) -> tuple[int, list[DevinSession]]:
+        try:
+            sessions = await devin_client.get_sessions_for_issue(issue_number)
+            return issue_number, sessions
+        except Exception:
+            logger.warning("Failed to fetch Devin sessions for issue #%d", issue_number)
+            return issue_number, []
+
+    results = await asyncio.gather(*[_get_sessions(n) for n in issue_numbers])
+    return dict(results)
+
+
+def _sum_acus(sessions: list[DevinSession]) -> float | None:
+    """Sum acus_consumed across all sessions. Returns None if no sessions."""
+    if not sessions:
+        return None
+    return sum(s.acus_consumed for s in sessions)
+
+
+async def _get_latest_devin_message(
+    devin_client: DevinClient,
+    sessions: list[DevinSession],
+) -> str | None:
+    """Get the latest Devin message from the most recent active session.
+
+    Returns the last message text truncated to ~200 chars, or None.
+    """
+    # Find the most recent active session, or fall back to most recent session
+    active_statuses = {"new", "claimed", "running", "resuming"}
+    active = sorted(
+        [s for s in sessions if s.status in active_statuses],
+        key=lambda s: str(s.updated_at),
+        reverse=True,
+    )
+    target = active[0] if active else (max(sessions, key=lambda s: str(s.updated_at)) if sessions else None)
+    if target is None:
+        return None
+
+    try:
+        page = await devin_client.list_messages(target.session_id)
+        if not page.items:
+            return None
+        devin_messages = [m for m in page.items if m.source == "devin"]
+        if not devin_messages:
+            return None
+        last_msg = devin_messages[-1].message
+        if len(last_msg) > _LATEST_MESSAGE_MAX_LENGTH:
+            return last_msg[:_LATEST_MESSAGE_MAX_LENGTH] + "..."
+        return last_msg
+    except Exception:
+        logger.warning("Failed to fetch messages for session %s", target.session_id)
+        return None
+
+
 def _issue_to_item(
     issue: dict,
     pr_enrichment: dict[str, Any] | None = None,
+    acus_consumed: float | None = None,
+    devin_latest_message: str | None = None,
 ) -> IssueItem:
     """Convert a GitHub issue dict to an IssueItem."""
     labels = issue.get("labels", [])
@@ -404,6 +475,8 @@ def _issue_to_item(
         unresolved_review_threads=unresolved_review_threads,
         created_at=issue.get("created_at", ""),
         updated_at=issue.get("updated_at", ""),
+        acus_consumed=acus_consumed,
+        devin_latest_message=devin_latest_message,
     )
 
 
@@ -569,9 +642,20 @@ async def compute_lists(settings: Settings) -> DashboardLists:
 
     For issues in PR stages, enriches with linked PR URL, CI status,
     and unresolved review thread count.
+
+    All issues are enriched with Devin session data:
+    - acus_consumed: total ACUs across all sessions (#43)
+    - devin_latest_message: last message from active session (#42)
+    Session data is fetched once per issue and shared between both
+    enrichments to avoid redundant API calls.
     """
     repo = settings.target_repo
     token = settings.github_token
+
+    # Build a DevinClient if credentials are available
+    devin_client: DevinClient | None = None
+    if settings.devin_api_key and settings.devin_org_id:
+        devin_client = DevinClient(settings.devin_api_key, settings.devin_org_id)
 
     async with httpx.AsyncClient() as client:
         attention_issues, progress_issues = await asyncio.gather(
@@ -600,8 +684,50 @@ async def compute_lists(settings: Settings) -> DashboardLists:
             issue["number"]: result for issue, result in zip(pr_stage_issues, enrichment_results, strict=True)
         }
 
-    needs_attention = [_issue_to_item(i, enrichment_map.get(i["number"])) for i in attention_issues]
-    in_progress = [_issue_to_item(i, enrichment_map.get(i["number"])) for i in progress_issues]
+    # ── Devin session enrichment (shared cache for #42 and #43) ──
+    session_cache: dict[int, list[DevinSession]] = {}
+    acus_map: dict[int, float | None] = {}
+    message_map: dict[int, str | None] = {}
+
+    if devin_client is not None:
+        all_issue_numbers = [i["number"] for i in all_issues]
+        session_cache = await _fetch_devin_sessions_for_issues(
+            devin_client, all_issue_numbers
+        )
+
+        # Compute ACUs from cached sessions (no extra API calls)
+        for num, sessions in session_cache.items():
+            acus_map[num] = _sum_acus(sessions)
+
+        # Fetch latest messages concurrently (needs per-session message fetch)
+        async def _get_msg(num: int) -> tuple[int, str | None]:
+            sessions = session_cache.get(num, [])
+            msg = await _get_latest_devin_message(devin_client, sessions)  # type: ignore[arg-type]
+            return num, msg
+
+        msg_results = await asyncio.gather(
+            *[_get_msg(i["number"]) for i in all_issues]
+        )
+        message_map = dict(msg_results)
+
+    needs_attention = [
+        _issue_to_item(
+            i,
+            enrichment_map.get(i["number"]),
+            acus_map.get(i["number"]),
+            message_map.get(i["number"]),
+        )
+        for i in attention_issues
+    ]
+    in_progress = [
+        _issue_to_item(
+            i,
+            enrichment_map.get(i["number"]),
+            acus_map.get(i["number"]),
+            message_map.get(i["number"]),
+        )
+        for i in progress_issues
+    ]
 
     # Sort attention: escalated first, then pr-ready, then triaged
     status_priority = {

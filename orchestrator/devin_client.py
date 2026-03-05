@@ -319,9 +319,9 @@ class DevinClient:
             session_id=session_id,
             url=url,
             status=status,
-            acus_consumed=data.get("acus_consumed", 0.0),
-            created_at=data.get("created_at", 0),
-            updated_at=data.get("updated_at", 0),
+            acus_consumed=data.get("acus_consumed") or 0.0,
+            created_at=data.get("created_at", ""),
+            updated_at=data.get("updated_at", ""),
             tags=data.get("tags", []),
             pull_requests=pull_requests,
         )

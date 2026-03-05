@@ -15,8 +15,8 @@ class DevinSession(BaseModel):
     url: str = ""
     status: str = "new"
     acus_consumed: float = 0.0
-    created_at: int = 0
-    updated_at: int = 0
+    created_at: str | int = ""
+    updated_at: str | int = ""
     tags: list[str] = []
     pull_requests: list[SessionPullRequest] = []
 
