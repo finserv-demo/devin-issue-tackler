@@ -601,20 +601,28 @@ async def compute_metrics(settings: Settings, time_window_days: int = 7) -> Dash
         week_str = "N/A"
 
     # 4. Per-size breakdowns for the dedicated metrics page
+    unsized_key = "__unsized__"  # sentinel for issues without a sizing label
     size_display: dict[str | None, str] = {
         "devin:small": "Small",
         "devin:medium": "Medium",
         "devin:large": "Large",
+        unsized_key: "Unsized",
         None: "Overall",
     }
 
     def _build_breakdown(
-        size_label: str | None,
+        size_key: str | None,
         current_subset: list[dict],
         previous_subset: list[dict],
         all_done_subset: list[dict],
     ) -> SizeMetricBreakdown:
-        """Compute all 3 metrics for a subset of issues (by size or overall)."""
+        """Compute all 3 metrics for a subset of issues (by size, unsized, or overall).
+
+        size_key is one of "devin:small", "devin:medium", "devin:large",
+        unsized_key (for issues without a sizing label), or None (overall).
+        """
+        # Map size_key to the schema's size_label (None for both unsized and overall)
+        schema_size_label = size_key if size_key not in (unsized_key, None) else None
         # Issues resolved
         cur_count = len(current_subset)
         prev_count = len(previous_subset)
@@ -668,8 +676,8 @@ async def compute_metrics(settings: Settings, time_window_days: int = 7) -> Dash
             wk_val = "N/A"
 
         return SizeMetricBreakdown(
-            size_label=size_label,
-            display_name=size_display[size_label],
+            size_label=schema_size_label,
+            display_name=size_display[size_key],
             issues_resolved=MetricCard(
                 label=f"Issues Resolved ({period_label})",
                 value=str(cur_count),
@@ -690,12 +698,17 @@ async def compute_metrics(settings: Settings, time_window_days: int = 7) -> Dash
         )
 
     breakdowns: list[SizeMetricBreakdown] = []
-    for sz in ("devin:small", "devin:medium", "devin:large", None):
+    for sz in ("devin:small", "devin:medium", "devin:large", unsized_key, None):
         if sz is None:
             # Overall = all issues regardless of sizing label
             cur_sub = current_resolved
             prev_sub = previous_resolved
             all_sub = done_issues
+        elif sz == unsized_key:
+            # Issues that have no sizing label at all
+            cur_sub = [i for i in current_resolved if _extract_sizing(i.get("labels", [])) is None]
+            prev_sub = [i for i in previous_resolved if _extract_sizing(i.get("labels", [])) is None]
+            all_sub = [i for i in done_issues if _extract_sizing(i.get("labels", [])) is None]
         else:
             cur_sub = [i for i in current_resolved if _extract_sizing(i.get("labels", [])) == sz]
             prev_sub = [i for i in previous_resolved if _extract_sizing(i.get("labels", [])) == sz]
