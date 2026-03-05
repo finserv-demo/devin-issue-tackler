@@ -180,6 +180,7 @@ async def _fetch_triage_start_times(
 
     Returns a dict mapping issue number -> ISO timestamp (or None if not found).
     """
+
     async def _get_triage_time(issue: dict) -> tuple[int, str | None]:
         number = issue["number"]
         try:
@@ -194,12 +195,36 @@ async def _fetch_triage_start_times(
 
 
 def _format_duration(delta: timedelta) -> str:
-    """Format a timedelta as a human-readable string like '2.3d' or '4.1h'."""
-    total_hours = delta.total_seconds() / 3600
-    if total_hours >= 24:
-        days = total_hours / 24
-        return f"{days:.1f}d"
-    return f"{total_hours:.1f}h"
+    """Format a timedelta as a human-readable string.
+
+    - Less than 1 hour: "N min"
+    - 1 hour to < 24 hours: "N hr M min"
+    - 24 hours or more: "N day", "N days", or "N.M days"
+    """
+    total_seconds = delta.total_seconds()
+    total_minutes = int(total_seconds // 60)
+    total_hours = total_seconds / 3600
+
+    if total_hours < 1:
+        return f"{max(total_minutes, 1)} min"
+
+    if total_hours < 24:
+        hours = int(total_hours)
+        minutes = total_minutes - hours * 60
+        if minutes > 0:
+            return f"{hours} hr {minutes} min"
+        return f"{hours} hr 0 min"
+
+    days = total_hours / 24
+    rounded_days = round(days, 1)
+    if rounded_days == int(rounded_days):
+        int_days = int(rounded_days)
+        if int_days == 1:
+            return "1 day"
+        return f"{int_days} days"
+    if rounded_days < 2:
+        return f"{rounded_days:.1f} day"
+    return f"{rounded_days:.1f} days"
 
 
 async def _find_linked_pr(
@@ -312,9 +337,7 @@ async def _fetch_unresolved_review_threads(
         resp.raise_for_status()
         data = resp.json()
         pr_data = (data.get("data") or {}).get("repository") or {}
-        threads = (
-            (pr_data.get("pullRequest") or {}).get("reviewThreads") or {}
-        ).get("nodes", [])
+        threads = ((pr_data.get("pullRequest") or {}).get("reviewThreads") or {}).get("nodes", [])
         return sum(1 for t in threads if not t.get("isResolved", True))
     except (httpx.HTTPStatusError, KeyError, AttributeError):
         logger.warning("Failed to fetch review threads for PR #%d", pr_number)
@@ -550,7 +573,9 @@ async def compute_metrics(settings: Settings, time_window_days: int = 7) -> Dash
         previous_times.sort()
         prev_median = previous_times[len(previous_times) // 2]
         if prev_median.total_seconds() > 0:
-            med_pct = ((current_median.total_seconds() - prev_median.total_seconds()) / prev_median.total_seconds()) * 100
+            med_pct = (
+                (current_median.total_seconds() - prev_median.total_seconds()) / prev_median.total_seconds()
+            ) * 100
             wow_label = "w/w" if time_window_days == 7 else "m/m"
             # For resolution time, negative is GOOD (faster)
             sign = "+" if med_pct >= 0 else ""
@@ -653,14 +678,10 @@ async def compute_lists(settings: Settings) -> DashboardLists:
         pr_stage_issues = [i for i in all_issues if _is_pr_stage(i)]
 
         enrichment_results = await asyncio.gather(
-            *[
-                _enrich_pr_issue(client, repo, token, issue)
-                for issue in pr_stage_issues
-            ]
+            *[_enrich_pr_issue(client, repo, token, issue) for issue in pr_stage_issues]
         )
         enrichment_map: dict[int, dict[str, Any]] = {
-            issue["number"]: result
-            for issue, result in zip(pr_stage_issues, enrichment_results, strict=True)
+            issue["number"]: result for issue, result in zip(pr_stage_issues, enrichment_results, strict=True)
         }
 
     # ── Devin session enrichment (shared cache for #42 and #43) ──
