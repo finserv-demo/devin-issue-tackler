@@ -13,12 +13,16 @@ const SIZING_COLORS: Record<string, { bg: string; text: string; label: string }>
 }
 
 const STATUS_DISPLAY: Record<string, { bg: string; text: string; label: string }> = {
-  'devin:triaged': { bg: 'bg-blue-100', text: 'text-blue-800', label: 'Awaiting Input' },
   'devin:pr-in-progress': { bg: 'bg-orange-100', text: 'text-orange-800', label: 'PR In Progress' },
-  'devin:pr-ready': { bg: 'bg-purple-100', text: 'text-purple-800', label: 'PR Ready' },
-  'devin:escalated': { bg: 'bg-red-100', text: 'text-red-800', label: 'Escalated' },
   'devin:triage': { bg: 'bg-sky-100', text: 'text-sky-800', label: 'Triaging' },
   'devin:implement': { bg: 'bg-violet-100', text: 'text-violet-800', label: 'Implementing' },
+}
+
+// CTA buttons for statuses that need human action
+const STATUS_CTA: Record<string, { bg: string; hoverBg: string; text: string; label: string }> = {
+  'devin:triaged': { bg: 'bg-blue-600', hoverBg: 'hover:bg-blue-700', text: 'text-white', label: 'Review Triage \u2192' },
+  'devin:pr-ready': { bg: 'bg-purple-600', hoverBg: 'hover:bg-purple-700', text: 'text-white', label: 'Review PR \u2192' },
+  'devin:escalated': { bg: 'bg-red-600', hoverBg: 'hover:bg-red-700', text: 'text-white', label: 'Review Escalation \u2192' },
 }
 
 // ── Components ──
@@ -81,6 +85,21 @@ function StatusBadge({ label }: { label: string }) {
   )
 }
 
+function StatusCTA({ label, href }: { label: string; href: string }) {
+  const style = STATUS_CTA[label]
+  if (!style) return null
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${style.bg} ${style.hoverBg} ${style.text} transition-colors`}
+    >
+      {style.label}
+    </a>
+  )
+}
+
 const CI_STYLES: Record<string, { bg: string; text: string; label: string }> = {
   passing: { bg: 'bg-emerald-100', text: 'text-emerald-800', label: 'CI Passing' },
   failing: { bg: 'bg-red-100', text: 'text-red-800', label: 'CI Failing' },
@@ -137,6 +156,9 @@ function AcuBadge({ acus }: { acus: number | null }) {
 
 function IssueRow({ issue }: { issue: IssueItem }) {
   const isPrStage = issue.status_label === 'devin:pr-in-progress' || issue.status_label === 'devin:pr-ready'
+  const ctaStyle = STATUS_CTA[issue.status_label]
+  // For PR-ready issues, the CTA links to the PR; otherwise link to the issue
+  const ctaHref = issue.status_label === 'devin:pr-ready' && issue.pr_url ? issue.pr_url : issue.html_url
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 transition-colors hover:border-gray-300 hover:bg-gray-50">
@@ -154,7 +176,11 @@ function IssueRow({ issue }: { issue: IssueItem }) {
         </a>
         <div className="flex shrink-0 items-center gap-2">
           <SizingBadge label={issue.sizing_label} />
-          <StatusBadge label={issue.status_label} />
+          {ctaStyle ? (
+            <StatusCTA label={issue.status_label} href={ctaHref} />
+          ) : (
+            <StatusBadge label={issue.status_label} />
+          )}
           <AcuBadge acus={issue.acus_consumed} />
           {isPrStage && <CIBadge status={issue.ci_status} />}
           {isPrStage && <ReviewThreadCount count={issue.unresolved_review_threads} />}
