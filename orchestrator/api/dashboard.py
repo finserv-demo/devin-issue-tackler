@@ -760,7 +760,11 @@ async def compute_lists(settings: Settings) -> DashboardLists:
     # Build a DevinClient if credentials are available
     devin_client: DevinClient | None = None
     if settings.devin_api_key and settings.devin_org_id:
-        devin_client = DevinClient(settings.devin_api_key, settings.devin_org_id)
+        devin_client = DevinClient(
+            settings.devin_api_key,
+            settings.devin_org_id,
+            v3_api_key=settings.devin_v3_api_key,
+        )
 
     async with httpx.AsyncClient() as client:
         attention_issues, progress_issues = await asyncio.gather(
@@ -800,9 +804,22 @@ async def compute_lists(settings: Settings) -> DashboardLists:
             devin_client, all_issue_numbers
         )
 
-        # Compute ACUs from cached sessions (no extra API calls)
+        # Fetch ACUs via v3 insights endpoint (v1 doesn't return acus_consumed).
+        # Collect all session IDs, make one v3 call, then sum per issue.
+        all_session_ids = [
+            s.session_id
+            for sessions in session_cache.values()
+            for s in sessions
+        ]
+        v3_acus = await devin_client.fetch_sessions_acus(all_session_ids)
+
         for num, sessions in session_cache.items():
-            acus_map[num] = _sum_acus(sessions)
+            if not sessions:
+                acus_map[num] = None
+            else:
+                acus_map[num] = sum(
+                    v3_acus.get(s.session_id, 0.0) for s in sessions
+                )
 
         # Fetch latest messages concurrently (needs per-session message fetch)
         async def _get_msg(num: int) -> tuple[int, str | None]:

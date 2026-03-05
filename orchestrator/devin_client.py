@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 # as deprecated in the docs — if Devin fixes v3 permissions for cog_* keys,
 # this client should be migrated back to v3.
 _DEVIN_API_BASE = "https://api.devin.ai/v1"
+_DEVIN_API_V3_BASE = "https://api.devin.ai/v3"
 
 _ACTIVE_STATUSES = {"new", "claimed", "running", "resuming"}
 _MAX_RETRIES = 3
@@ -39,16 +40,19 @@ class DevinClient:
     403). See PR #25 for details on this limitation.
     """
 
-    def __init__(self, api_key: str, org_id: str) -> None:
+    def __init__(self, api_key: str, org_id: str, *, v3_api_key: str = "") -> None:
         """Initialize the client.
 
         Args:
             api_key: Devin API key (apk_* service API key).
             org_id: Devin organization ID (retained for compatibility but
                 not used in v1 URLs — v1 resolves org from the key).
+            v3_api_key: Optional cog_* key for v3 API (used for ACU
+                enrichment via the /sessions/insights endpoint).
         """
         self._api_key = api_key
         self._org_id = org_id
+        self._v3_api_key = v3_api_key
         self._headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
@@ -265,6 +269,52 @@ class DevinClient:
             self._url(f"/playbooks/{playbook_id}"),
             json={"title": title, "body": body},
         )
+
+    # ── v3 ACU enrichment ──
+
+    async def fetch_sessions_acus(self, session_ids: list[str]) -> dict[str, float]:
+        """Fetch acus_consumed for sessions via the v3 /sessions/insights endpoint.
+
+        The v1 API does not return acus_consumed.  The v3 insights endpoint
+        supports a ``session_ids`` filter and returns ACU data for each session.
+
+        Args:
+            session_ids: Session IDs (without the ``devin-`` prefix).
+
+        Returns:
+            Dict mapping session_id → acus_consumed.  Returns an empty dict
+            when v3 credentials are unavailable or on any error.
+        """
+        if not self._v3_api_key or not self._org_id or not session_ids:
+            return {}
+
+        v3_headers = {
+            "Authorization": f"Bearer {self._v3_api_key}",
+            "Content-Type": "application/json",
+        }
+        url = f"{_DEVIN_API_V3_BASE}/organizations/{self._org_id}/sessions/insights"
+
+        # Build params: first=N plus repeated session_ids entries
+        params: list[tuple[str, str | int]] = [("first", len(session_ids))]
+        for sid in session_ids:
+            params.append(("session_ids", sid))
+
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    url, headers=v3_headers, params=params, timeout=60.0
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                items = data.get("items", [])
+                return {
+                    item["session_id"]: float(item.get("acus_consumed", 0.0))
+                    for item in items
+                    if "session_id" in item
+                }
+        except Exception:
+            logger.warning("Failed to fetch ACU data from v3 insights endpoint", exc_info=True)
+            return {}
 
     # ── Internal helpers ──
 

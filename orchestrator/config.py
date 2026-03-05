@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     github_webhook_secret: str = ""
     devin_api_key: str = ""  # cog_* service user credential
     devin_org_id: str = ""
+    devin_v3_api_key: str = ""  # cog_* key for v3 API (ACU enrichment)
     github_token: str = ""  # PAT or GitHub App token
 
     # Target repository
