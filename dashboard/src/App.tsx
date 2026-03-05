@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useMetrics, useLists } from './api/hooks'
 import type { MetricCard as MetricCardType, IssueItem } from './api/types'
 
@@ -7,7 +7,8 @@ const PAGE_SIZE = 5
 // ── Filter/sort types ──
 
 type SizeFilterValue = 'all' | 'S' | 'M' | 'L'
-type SortDirection = 'none' | 'asc' | 'desc'
+type SortByValue = 'created_on' | 'last_updated' | 'status' | 'size'
+type SortOrder = 'asc' | 'desc'
 
 const SIZE_ORDER: Record<string, number> = {
   'devin:small': 1,
@@ -36,19 +37,21 @@ const PROGRESS_STATUSES = [
   { value: 'devin:pr-in-progress', label: 'PR In Progress' },
 ] as const
 
-function applyFiltersAndSorts(
+const SIZE_FILTER_TO_LABEL: Record<string, string> = {
+  S: 'devin:small',
+  M: 'devin:medium',
+  L: 'devin:large',
+}
+
+function applyFiltersAndSort(
   items: IssueItem[],
   sizeFilter: SizeFilterValue,
-  sizeSort: SortDirection,
   statusFilter: string,
-  statusSort: SortDirection,
+  sortBy: SortByValue,
+  sortOrder: SortOrder,
 ): IssueItem[] {
-  const SIZE_FILTER_TO_LABEL: Record<string, string> = {
-    S: 'devin:small',
-    M: 'devin:medium',
-    L: 'devin:large',
-  }
   let result = items
+
   if (sizeFilter !== 'all') {
     const target = SIZE_FILTER_TO_LABEL[sizeFilter]
     result = result.filter((i) => i.sizing_label === target)
@@ -56,23 +59,38 @@ function applyFiltersAndSorts(
   if (statusFilter !== 'all') {
     result = result.filter((i) => i.status_label === statusFilter)
   }
-  // Apply sorts — status sort first (primary), then size sort (secondary) if both active
-  if (sizeSort !== 'none' || statusSort !== 'none') {
-    result = [...result].sort((a, b) => {
-      if (statusSort !== 'none') {
+
+  result = [...result].sort((a, b) => {
+    let cmp = 0
+    switch (sortBy) {
+      case 'created_on': {
+        const aDate = a.created_at || ''
+        const bDate = b.created_at || ''
+        cmp = aDate.localeCompare(bDate)
+        break
+      }
+      case 'last_updated': {
+        const aDate = a.updated_at || ''
+        const bDate = b.updated_at || ''
+        cmp = aDate.localeCompare(bDate)
+        break
+      }
+      case 'status': {
         const aStatus = STATUS_ORDER[a.status_label] ?? 99
         const bStatus = STATUS_ORDER[b.status_label] ?? 99
-        const statusCmp = statusSort === 'asc' ? aStatus - bStatus : bStatus - aStatus
-        if (statusCmp !== 0) return statusCmp
+        cmp = aStatus - bStatus
+        break
       }
-      if (sizeSort !== 'none') {
+      case 'size': {
         const aSize = a.sizing_label ? (SIZE_ORDER[a.sizing_label] ?? 99) : 99
         const bSize = b.sizing_label ? (SIZE_ORDER[b.sizing_label] ?? 99) : 99
-        return sizeSort === 'asc' ? aSize - bSize : bSize - aSize
+        cmp = aSize - bSize
+        break
       }
-      return 0
-    })
-  }
+    }
+    return sortOrder === 'asc' ? cmp : -cmp
+  })
+
   return result
 }
 
@@ -227,95 +245,270 @@ function EmptyState({ message }: { message: string }) {
   )
 }
 
-function SortButton({ label, sort, onSort }: { label: string; sort: SortDirection; onSort: (v: SortDirection) => void }) {
-  const nextSort: Record<SortDirection, SortDirection> = {
-    none: 'asc',
-    asc: 'desc',
-    desc: 'none',
-  }
-  const arrow: Record<SortDirection, string> = { none: '', asc: ' ↑', desc: ' ↓' }
+// ── Dropdown components ──
+
+function useClickOutside(ref: React.RefObject<HTMLDivElement | null>, onClose: () => void) {
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        onClose()
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [ref, onClose])
+}
+
+const CHEVRON_SVG = (
+  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+  </svg>
+)
+
+const CHECK_SVG = (
+  <svg className="h-3 w-3 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+  </svg>
+)
+
+function DropdownButton({
+  label,
+  isOpen,
+  onToggle,
+  isFiltered,
+}: {
+  label: string
+  isOpen: boolean
+  onToggle: () => void
+  isFiltered?: boolean
+}) {
   return (
     <button
-      onClick={() => onSort(nextSort[sort])}
-      className={`rounded-md px-2 py-0.5 text-xs font-medium transition-colors ${
-        sort !== 'none'
-          ? 'bg-gray-200 text-gray-900'
-          : 'text-gray-500 hover:text-gray-700'
+      onClick={onToggle}
+      className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors ${
+        isFiltered
+          ? 'border-blue-300 bg-blue-50 text-blue-700'
+          : isOpen
+            ? 'border-gray-300 bg-gray-50 text-gray-900'
+            : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50'
       }`}
     >
-      {label}{arrow[sort]}
+      {label}
+      {CHEVRON_SVG}
     </button>
+  )
+}
+
+function DropdownOption({
+  label,
+  selected,
+  onClick,
+}: {
+  label: string
+  selected: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs ${
+        selected ? 'bg-gray-50 font-medium text-gray-900' : 'text-gray-600 hover:bg-gray-50'
+      }`}
+    >
+      {selected ? CHECK_SVG : <span className="h-3 w-3" />}
+      {label}
+    </button>
+  )
+}
+
+function LabelDropdown({
+  value,
+  onChange,
+}: {
+  value: SizeFilterValue
+  onChange: (v: SizeFilterValue) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useClickOutside(ref, () => setOpen(false))
+
+  const options: { value: SizeFilterValue; label: string }[] = [
+    { value: 'all', label: 'All sizes' },
+    { value: 'S', label: 'S (Small)' },
+    { value: 'M', label: 'M (Medium)' },
+    { value: 'L', label: 'L (Large)' },
+  ]
+
+  const displayLabel = value === 'all' ? 'Label' : options.find((o) => o.value === value)?.label ?? value
+
+  return (
+    <div className="relative" ref={ref}>
+      <DropdownButton
+        label={displayLabel}
+        isOpen={open}
+        onToggle={() => setOpen(!open)}
+        isFiltered={value !== 'all'}
+      />
+      {open && (
+        <div className="absolute right-0 z-10 mt-1 w-40 rounded-md border border-gray-200 bg-white py-1 shadow-lg">
+          {options.map((opt) => (
+            <DropdownOption
+              key={opt.value}
+              label={opt.label}
+              selected={value === opt.value}
+              onClick={() => { onChange(opt.value); setOpen(false) }}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function StatusDropdown({
+  value,
+  onChange,
+  statuses,
+}: {
+  value: string
+  onChange: (v: string) => void
+  statuses: readonly { value: string; label: string }[]
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useClickOutside(ref, () => setOpen(false))
+
+  const allOptions = [{ value: 'all', label: 'All statuses' }, ...statuses]
+  const displayLabel = value === 'all' ? 'Status' : allOptions.find((o) => o.value === value)?.label ?? value
+
+  return (
+    <div className="relative" ref={ref}>
+      <DropdownButton
+        label={displayLabel}
+        isOpen={open}
+        onToggle={() => setOpen(!open)}
+        isFiltered={value !== 'all'}
+      />
+      {open && (
+        <div className="absolute right-0 z-10 mt-1 w-44 rounded-md border border-gray-200 bg-white py-1 shadow-lg">
+          {allOptions.map((opt) => (
+            <DropdownOption
+              key={opt.value}
+              label={opt.label}
+              selected={value === opt.value}
+              onClick={() => { onChange(opt.value); setOpen(false) }}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SortDropdown({
+  sortBy,
+  sortOrder,
+  onSortByChange,
+  onSortOrderChange,
+}: {
+  sortBy: SortByValue
+  sortOrder: SortOrder
+  onSortByChange: (v: SortByValue) => void
+  onSortOrderChange: (v: SortOrder) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useClickOutside(ref, () => setOpen(false))
+
+  const sortByOptions: { value: SortByValue; label: string }[] = [
+    { value: 'created_on', label: 'Created on' },
+    { value: 'last_updated', label: 'Last updated' },
+    { value: 'status', label: 'Status' },
+    { value: 'size', label: 'Size' },
+  ]
+
+  const isTimeBased = sortBy === 'created_on' || sortBy === 'last_updated'
+  const orderOptions: { value: SortOrder; label: string }[] = isTimeBased
+    ? [
+        { value: 'asc', label: 'Oldest' },
+        { value: 'desc', label: 'Newest' },
+      ]
+    : [
+        { value: 'asc', label: 'Ascending' },
+        { value: 'desc', label: 'Descending' },
+      ]
+
+  const currentOrderLabel = orderOptions.find((o) => o.value === sortOrder)?.label ?? ''
+
+  return (
+    <div className="relative" ref={ref}>
+      <DropdownButton
+        label={currentOrderLabel}
+        isOpen={open}
+        onToggle={() => setOpen(!open)}
+      />
+      {open && (
+        <div className="absolute right-0 z-10 mt-1 w-44 rounded-md border border-gray-200 bg-white shadow-lg">
+          {/* Sort by section */}
+          <div className="border-b border-gray-100 px-3 py-1.5">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Sort by</span>
+          </div>
+          <div className="py-1">
+            {sortByOptions.map((opt) => (
+              <DropdownOption
+                key={opt.value}
+                label={opt.label}
+                selected={sortBy === opt.value}
+                onClick={() => onSortByChange(opt.value)}
+              />
+            ))}
+          </div>
+          {/* Order section */}
+          <div className="border-t border-gray-100 px-3 py-1.5">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Order</span>
+          </div>
+          <div className="py-1">
+            {orderOptions.map((opt) => (
+              <DropdownOption
+                key={opt.value}
+                label={opt.label}
+                selected={sortOrder === opt.value}
+                onClick={() => { onSortOrderChange(opt.value); setOpen(false) }}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
 function FilterSortControls({
   sizeFilter,
   onSizeFilter,
-  sizeSort,
-  onSizeSort,
   statusFilter,
   onStatusFilter,
-  statusSort,
-  onStatusSort,
+  sortBy,
+  onSortBy,
+  sortOrder,
+  onSortOrder,
   statuses,
 }: {
   sizeFilter: SizeFilterValue
   onSizeFilter: (v: SizeFilterValue) => void
-  sizeSort: SortDirection
-  onSizeSort: (v: SortDirection) => void
   statusFilter: string
   onStatusFilter: (v: string) => void
-  statusSort: SortDirection
-  onStatusSort: (v: SortDirection) => void
+  sortBy: SortByValue
+  onSortBy: (v: SortByValue) => void
+  sortOrder: SortOrder
+  onSortOrder: (v: SortOrder) => void
   statuses: readonly { value: string; label: string }[]
 }) {
-  const sizes: SizeFilterValue[] = ['all', 'S', 'M', 'L']
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      {/* Size filter pills */}
-      <div className="flex items-center gap-1 rounded-lg bg-gray-100 p-0.5">
-        {sizes.map((s) => (
-          <button
-            key={s}
-            onClick={() => onSizeFilter(s)}
-            className={`rounded-md px-2 py-0.5 text-xs font-medium transition-colors ${
-              sizeFilter === s
-                ? 'bg-white text-gray-900 shadow-sm'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            {s === 'all' ? 'All' : s}
-          </button>
-        ))}
-      </div>
-      <SortButton label="Size" sort={sizeSort} onSort={onSizeSort} />
-      {/* Status filter pills */}
-      <div className="flex items-center gap-1 rounded-lg bg-gray-100 p-0.5">
-        <button
-          onClick={() => onStatusFilter('all')}
-          className={`rounded-md px-2 py-0.5 text-xs font-medium transition-colors ${
-            statusFilter === 'all'
-              ? 'bg-white text-gray-900 shadow-sm'
-              : 'text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          All
-        </button>
-        {statuses.map((st) => (
-          <button
-            key={st.value}
-            onClick={() => onStatusFilter(st.value)}
-            className={`rounded-md px-2 py-0.5 text-xs font-medium transition-colors ${
-              statusFilter === st.value
-                ? 'bg-white text-gray-900 shadow-sm'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            {st.label}
-          </button>
-        ))}
-      </div>
-      <SortButton label="Status" sort={statusSort} onSort={onStatusSort} />
+    <div className="flex items-center gap-2">
+      <LabelDropdown value={sizeFilter} onChange={onSizeFilter} />
+      <StatusDropdown value={statusFilter} onChange={onStatusFilter} statuses={statuses} />
+      <SortDropdown sortBy={sortBy} sortOrder={sortOrder} onSortByChange={onSortBy} onSortOrderChange={onSortOrder} />
     </div>
   )
 }
@@ -351,21 +544,21 @@ function App() {
   const [attentionPage, setAttentionPage] = useState(1)
   const [progressPage, setProgressPage] = useState(1)
   const [attentionSizeFilter, setAttentionSizeFilter] = useState<SizeFilterValue>('all')
-  const [attentionSizeSort, setAttentionSizeSort] = useState<SortDirection>('none')
   const [attentionStatusFilter, setAttentionStatusFilter] = useState('all')
-  const [attentionStatusSort, setAttentionStatusSort] = useState<SortDirection>('none')
+  const [attentionSortBy, setAttentionSortBy] = useState<SortByValue>('created_on')
+  const [attentionSortOrder, setAttentionSortOrder] = useState<SortOrder>('desc')
   const [progressSizeFilter, setProgressSizeFilter] = useState<SizeFilterValue>('all')
-  const [progressSizeSort, setProgressSizeSort] = useState<SortDirection>('none')
   const [progressStatusFilter, setProgressStatusFilter] = useState('all')
-  const [progressStatusSort, setProgressStatusSort] = useState<SortDirection>('none')
+  const [progressSortBy, setProgressSortBy] = useState<SortByValue>('created_on')
+  const [progressSortOrder, setProgressSortOrder] = useState<SortOrder>('desc')
   const { data: metrics, isLoading: metricsLoading, error: metricsError } = useMetrics(days)
   const { data: lists, isLoading: listsLoading, error: listsError } = useLists()
 
   const filteredAttention = lists
-    ? applyFiltersAndSorts(lists.needs_attention, attentionSizeFilter, attentionSizeSort, attentionStatusFilter, attentionStatusSort)
+    ? applyFiltersAndSort(lists.needs_attention, attentionSizeFilter, attentionStatusFilter, attentionSortBy, attentionSortOrder)
     : []
   const filteredProgress = lists
-    ? applyFiltersAndSorts(lists.in_progress, progressSizeFilter, progressSizeSort, progressStatusFilter, progressStatusSort)
+    ? applyFiltersAndSort(lists.in_progress, progressSizeFilter, progressStatusFilter, progressSortBy, progressSortOrder)
     : []
 
   const attentionTotal = Math.max(1, Math.ceil(filteredAttention.length / PAGE_SIZE))
@@ -382,11 +575,11 @@ function App() {
   // Reset pages when filter/sort changes
   useEffect(() => {
     setAttentionPage(1)
-  }, [attentionSizeFilter, attentionSizeSort, attentionStatusFilter, attentionStatusSort])
+  }, [attentionSizeFilter, attentionStatusFilter, attentionSortBy, attentionSortOrder])
 
   useEffect(() => {
     setProgressPage(1)
-  }, [progressSizeFilter, progressSizeSort, progressStatusFilter, progressStatusSort])
+  }, [progressSizeFilter, progressStatusFilter, progressSortBy, progressSortOrder])
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -463,12 +656,12 @@ function App() {
                 <FilterSortControls
                   sizeFilter={attentionSizeFilter}
                   onSizeFilter={setAttentionSizeFilter}
-                  sizeSort={attentionSizeSort}
-                  onSizeSort={setAttentionSizeSort}
                   statusFilter={attentionStatusFilter}
                   onStatusFilter={setAttentionStatusFilter}
-                  statusSort={attentionStatusSort}
-                  onStatusSort={setAttentionStatusSort}
+                  sortBy={attentionSortBy}
+                  onSortBy={setAttentionSortBy}
+                  sortOrder={attentionSortOrder}
+                  onSortOrder={setAttentionSortOrder}
                   statuses={ATTENTION_STATUSES}
                 />
               )}
@@ -524,12 +717,12 @@ function App() {
                 <FilterSortControls
                   sizeFilter={progressSizeFilter}
                   onSizeFilter={setProgressSizeFilter}
-                  sizeSort={progressSizeSort}
-                  onSizeSort={setProgressSizeSort}
                   statusFilter={progressStatusFilter}
                   onStatusFilter={setProgressStatusFilter}
-                  statusSort={progressStatusSort}
-                  onStatusSort={setProgressStatusSort}
+                  sortBy={progressSortBy}
+                  onSortBy={setProgressSortBy}
+                  sortOrder={progressSortOrder}
+                  onSortOrder={setProgressSortOrder}
                   statuses={PROGRESS_STATUSES}
                 />
               )}
