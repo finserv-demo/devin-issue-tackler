@@ -736,10 +736,15 @@ function MetricsPage({ onBack }: { onBack: () => void }) {
   const [days, setDays] = useState(7)
   const { data: metrics, isLoading, error } = useMetrics(days)
 
+  const resolvedLabel = days === 7 ? '% Resolved < 1 Week' : '% Resolved < 1 Month'
+  const resolvedTooltip = days === 7
+    ? METRIC_TOOLTIPS.resolved_within_one_week
+    : 'Percentage of all done issues resolved within 30 days of triage.'
+
   const COLUMN_KEYS: { key: string; label: string; tooltip: string }[] = [
     { key: 'issues_resolved', label: 'Issues Resolved', tooltip: METRIC_TOOLTIPS.issues_resolved },
     { key: 'median_resolution_time', label: 'Median Resolution Time', tooltip: METRIC_TOOLTIPS.median_resolution_time },
-    { key: 'resolved_within_one_week', label: '% Resolved < 1 Week', tooltip: METRIC_TOOLTIPS.resolved_within_one_week },
+    { key: 'resolved_within_one_week', label: resolvedLabel, tooltip: resolvedTooltip },
   ]
 
   return (
@@ -793,7 +798,7 @@ function MetricsPage({ onBack }: { onBack: () => void }) {
           </div>
         )}
         {metrics && metrics.breakdowns.length > 0 && (
-          <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+          <div className="rounded-xl border border-gray-200 bg-white">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-200 bg-gray-50">

@@ -589,13 +589,14 @@ async def compute_metrics(settings: Settings, time_window_days: int = 7) -> Dash
         median_subtitle = ""
         median_sentiment = "neutral"
 
-    # 3. % resolved within 1 week
+    # 3. % resolved within threshold (1 week for 7-day view, 1 month for 30-day view)
     # Use ALL done issues (not just current period) for this metric
+    resolution_threshold_seconds = time_window_days * 24 * 3600
     all_times = [t for issue in done_issues if (t := _resolution_time(issue)) is not None]
     if all_times:
-        within_week = sum(1 for t in all_times if t.total_seconds() <= 7 * 24 * 3600)
-        pct_within_week = math.floor((within_week / len(all_times)) * 100)
-        week_str = f"{pct_within_week}%"
+        within_threshold = sum(1 for t in all_times if t.total_seconds() <= resolution_threshold_seconds)
+        pct_within = math.floor((within_threshold / len(all_times)) * 100)
+        week_str = f"{pct_within}%"
     else:
         week_str = "N/A"
 
@@ -657,10 +658,10 @@ async def compute_metrics(settings: Settings, time_window_days: int = 7) -> Dash
             med_subtitle = ""
             med_sentiment = "neutral"
 
-        # % resolved within 1 week
+        # % resolved within threshold (1 week for 7-day view, 1 month for 30-day view)
         all_t = [t for i in all_done_subset if (t := _resolution_time(i)) is not None]
         if all_t:
-            wk = sum(1 for t in all_t if t.total_seconds() <= 7 * 24 * 3600)
+            wk = sum(1 for t in all_t if t.total_seconds() <= resolution_threshold_seconds)
             pct_wk = math.floor((wk / len(all_t)) * 100)
             wk_val = f"{pct_wk}%"
         else:
@@ -682,7 +683,7 @@ async def compute_metrics(settings: Settings, time_window_days: int = 7) -> Dash
                 sentiment=med_sentiment,
             ),
             resolved_within_one_week=MetricCard(
-                label="Resolved Within 1 Week",
+                label=f"Resolved Within 1 {'Week' if time_window_days == 7 else 'Month'}",
                 value=wk_val,
                 subtitle="of all issues" if all_t else "",
             ),
@@ -720,7 +721,7 @@ async def compute_metrics(settings: Settings, time_window_days: int = 7) -> Dash
             sentiment=median_sentiment,
         ),
         resolved_within_one_week=MetricCard(
-            label="Resolved Within 1 Week",
+            label=f"Resolved Within 1 {'Week' if time_window_days == 7 else 'Month'}",
             value=week_str,
             subtitle="of all issues",
         ),
