@@ -418,10 +418,10 @@ async def _get_latest_devin_message(
     active_statuses = {"new", "claimed", "running", "resuming"}
     active = sorted(
         [s for s in sessions if s.status in active_statuses],
-        key=lambda s: s.updated_at,
+        key=lambda s: str(s.updated_at),
         reverse=True,
     )
-    target = active[0] if active else (max(sessions, key=lambda s: s.updated_at) if sessions else None)
+    target = active[0] if active else (max(sessions, key=lambda s: str(s.updated_at)) if sessions else None)
     if target is None:
         return None
 
