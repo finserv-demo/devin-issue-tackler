@@ -225,7 +225,9 @@ async def test_get_active_session_none(client: DevinClient, httpx_mock: HTTPXMoc
 
 @pytest.mark.asyncio
 async def test_list_messages(client: DevinClient, httpx_mock: HTTPXMock) -> None:
-    # v1 list_messages fetches GET /sessions/{id} and extracts messages
+    # v1 list_messages fetches GET /sessions/{id} and extracts messages.
+    # The v1 API returns type="devin_message" / "initial_user_message",
+    # which must be normalized to "devin" / "user" for downstream filters.
     httpx_mock.add_response(
         url=f"{V1_BASE}/sessions/devin-sess001",
         json={
@@ -234,18 +236,26 @@ async def test_list_messages(client: DevinClient, httpx_mock: HTTPXMock) -> None
             "messages": [
                 {
                     "event_id": "evt-001",
-                    "type": "devin",
+                    "type": "devin_message",
                     "message": "Starting triage...",
                     "created_at": 1700000000,
+                },
+                {
+                    "event_id": "evt-002",
+                    "type": "initial_user_message",
+                    "message": "Please fix the login bug",
+                    "created_at": 1700000001,
                 },
             ],
         },
     )
 
     page = await client.list_messages("sess001")
-    assert len(page.items) == 1
+    assert len(page.items) == 2
     assert page.items[0].source == "devin"
     assert page.items[0].message == "Starting triage..."
+    assert page.items[1].source == "user"
+    assert page.items[1].message == "Please fix the login bug"
     assert page.has_next_page is False
 
 

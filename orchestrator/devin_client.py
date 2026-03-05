@@ -31,6 +31,26 @@ def _add_devin_prefix(session_id: str) -> str:
     return f"devin-{session_id}"
 
 
+def _normalize_message_source(raw_type: str) -> str:
+    """Normalize v1 message type values to canonical source names.
+
+    The v1 API returns message types like ``"devin_message"`` and
+    ``"initial_user_message"`` / ``"user_message"``, but downstream code
+    (e.g. ``_get_latest_devin_message``) filters on ``source == "devin"``
+    or ``source == "user"``.
+
+    Mapping:
+        * Contains ``"devin"`` → ``"devin"``
+        * Contains ``"user"`` → ``"user"``
+        * Anything else → passed through unchanged
+    """
+    if "devin" in raw_type:
+        return "devin"
+    if "user" in raw_type:
+        return "user"
+    return raw_type
+
+
 class DevinClient:
     """Async Devin API v1 client for session lifecycle and message operations.
 
@@ -220,7 +240,7 @@ class DevinClient:
         items = [
             Message(
                 event_id=msg.get("event_id", ""),
-                source=msg.get("type", ""),
+                source=_normalize_message_source(msg.get("type", "")),
                 message=msg.get("message", ""),
                 created_at=msg.get("created_at", 0),
             )
