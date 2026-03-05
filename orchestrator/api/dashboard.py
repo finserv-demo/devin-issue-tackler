@@ -13,6 +13,7 @@ from typing import Any
 import httpx
 
 from orchestrator.config import Settings
+from orchestrator.devin_client import DevinClient
 from orchestrator.schemas.dashboard import (
     DashboardLists,
     DashboardMetrics,
@@ -349,9 +350,13 @@ async def _enrich_pr_issue(
         return {"pr_url": None, "ci_status": None, "unresolved_review_threads": None}
 
 
+_MESSAGE_TRUNCATE_LENGTH = 200
+
+
 def _issue_to_item(
     issue: dict,
     pr_enrichment: dict[str, Any] | None = None,
+    devin_enrichment: dict[str, Any] | None = None,
 ) -> IssueItem:
     """Convert a GitHub issue dict to an IssueItem."""
     labels = issue.get("labels", [])
@@ -369,6 +374,12 @@ def _issue_to_item(
         ci_status = pr_enrichment.get("ci_status")
         unresolved_review_threads = pr_enrichment.get("unresolved_review_threads")
 
+    devin_latest_message = None
+    acus_consumed = None
+    if devin_enrichment:
+        devin_latest_message = devin_enrichment.get("devin_latest_message")
+        acus_consumed = devin_enrichment.get("acus_consumed")
+
     return IssueItem(
         number=issue["number"],
         title=issue["title"],
@@ -380,6 +391,8 @@ def _issue_to_item(
         ci_status=ci_status,
         unresolved_review_threads=unresolved_review_threads,
         created_at=issue.get("created_at", ""),
+        devin_latest_message=devin_latest_message,
+        acus_consumed=acus_consumed,
     )
 
 
@@ -535,6 +548,50 @@ def _is_pr_stage(issue: dict) -> bool:
     return False
 
 
+async def _enrich_devin_data(
+    devin_client: DevinClient,
+    issue_number: int,
+) -> dict[str, Any]:
+    """Fetch Devin session data for an issue.
+
+    Returns a dict with devin_latest_message and acus_consumed.
+    Catches all exceptions so a single issue's enrichment failure
+    doesn't take down the entire /lists endpoint.
+    """
+    try:
+        sessions = await devin_client.get_sessions_for_issue(issue_number)
+        if not sessions:
+            return {"devin_latest_message": None, "acus_consumed": None}
+
+        # Sum ACUs across all sessions
+        total_acus = sum(s.acus_consumed for s in sessions)
+        acus_consumed = round(total_acus, 2) if total_acus > 0 else None
+
+        # Find the active session and get its latest message
+        devin_latest_message = None
+        active_session = next(
+            (s for s in sessions if s.status in {"new", "claimed", "running", "resuming"}),
+            None,
+        )
+        if active_session:
+            try:
+                page = await devin_client.list_messages(active_session.session_id)
+                if page.items:
+                    last_msg = page.items[-1].message
+                    if last_msg:
+                        devin_latest_message = last_msg[:_MESSAGE_TRUNCATE_LENGTH]
+            except Exception:
+                logger.warning("Failed to fetch messages for session %s", active_session.session_id)
+
+        return {
+            "devin_latest_message": devin_latest_message,
+            "acus_consumed": acus_consumed,
+        }
+    except Exception:
+        logger.warning("Failed to enrich Devin data for issue #%d", issue_number)
+        return {"devin_latest_message": None, "acus_consumed": None}
+
+
 async def compute_lists(settings: Settings) -> DashboardLists:
     """Compute the attention and in-progress lists.
 
@@ -543,9 +600,16 @@ async def compute_lists(settings: Settings) -> DashboardLists:
 
     For issues in PR stages, enriches with linked PR URL, CI status,
     and unresolved review thread count.
+
+    For all issues, enriches with Devin session data (latest message, ACU cost).
     """
     repo = settings.target_repo
     token = settings.github_token
+
+    # Initialize Devin client for session enrichment
+    devin_client: DevinClient | None = None
+    if settings.devin_api_key and settings.devin_org_id:
+        devin_client = DevinClient(settings.devin_api_key, settings.devin_org_id)
 
     async with httpx.AsyncClient() as client:
         attention_issues, progress_issues = await asyncio.gather(
@@ -578,11 +642,27 @@ async def compute_lists(settings: Settings) -> DashboardLists:
             for issue, result in zip(pr_stage_issues, enrichment_results, strict=True)
         }
 
+    # Enrich all issues with Devin session data (concurrently)
+    devin_enrichment_map: dict[int, dict[str, Any]] = {}
+    if devin_client:
+        devin_results = await asyncio.gather(
+            *[
+                _enrich_devin_data(devin_client, issue["number"])
+                for issue in all_issues
+            ]
+        )
+        devin_enrichment_map = {
+            issue["number"]: result
+            for issue, result in zip(all_issues, devin_results, strict=True)
+        }
+
     needs_attention = [
-        _issue_to_item(i, enrichment_map.get(i["number"])) for i in attention_issues
+        _issue_to_item(i, enrichment_map.get(i["number"]), devin_enrichment_map.get(i["number"]))
+        for i in attention_issues
     ]
     in_progress = [
-        _issue_to_item(i, enrichment_map.get(i["number"])) for i in progress_issues
+        _issue_to_item(i, enrichment_map.get(i["number"]), devin_enrichment_map.get(i["number"]))
+        for i in progress_issues
     ]
 
     # Sort attention: escalated first, then pr-ready, then triaged

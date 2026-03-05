@@ -110,6 +110,34 @@ function ReviewThreadCount({ count }: { count: number | null }) {
   )
 }
 
+// ── ACU cost thresholds ──
+
+const ACU_LOW_THRESHOLD = 2
+const ACU_MODERATE_THRESHOLD = 5
+
+function AcuBadge({ acus }: { acus: number | null }) {
+  if (acus === null || acus === undefined) return null
+  let bg: string
+  let text: string
+  if (acus < ACU_LOW_THRESHOLD) {
+    bg = 'bg-emerald-100'
+    text = 'text-emerald-800'
+  } else if (acus <= ACU_MODERATE_THRESHOLD) {
+    bg = 'bg-amber-100'
+    text = 'text-amber-800'
+  } else {
+    bg = 'bg-red-100'
+    text = 'text-red-800'
+  }
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${bg} ${text}`}
+    >
+      {acus.toFixed(1)} ACU
+    </span>
+  )
+}
+
 function IssueRow({ issue }: { issue: IssueItem }) {
   const isPrStage = issue.status_label === 'devin:pr-in-progress' || issue.status_label === 'devin:pr-ready'
 
@@ -130,6 +158,7 @@ function IssueRow({ issue }: { issue: IssueItem }) {
         <div className="flex shrink-0 items-center gap-2">
           <SizingBadge label={issue.sizing_label} />
           <StatusBadge label={issue.status_label} />
+          <AcuBadge acus={issue.acus_consumed} />
           {isPrStage && <CIBadge status={issue.ci_status} />}
           {isPrStage && <ReviewThreadCount count={issue.unresolved_review_threads} />}
           {issue.time_in_state && (
@@ -137,6 +166,11 @@ function IssueRow({ issue }: { issue: IssueItem }) {
           )}
         </div>
       </div>
+      {issue.devin_latest_message && (
+        <div className="mt-1 pl-9">
+          <p className="truncate text-xs text-gray-400">{issue.devin_latest_message}</p>
+        </div>
+      )}
       {isPrStage && issue.pr_url && (
         <div className="mt-1 pl-9">
           <a

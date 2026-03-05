@@ -24,6 +24,8 @@ export interface IssueItem {
   ci_status: string | null
   unresolved_review_threads: number | null
   created_at: string
+  devin_latest_message: string | null
+  acus_consumed: number | null
 }
 
 export interface DashboardLists {

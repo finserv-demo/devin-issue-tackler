@@ -35,6 +35,8 @@ class IssueItem(BaseModel):
     ci_status: str | None = None  # "passing" | "failing" | "pending" | None
     unresolved_review_threads: int | None = None  # Count of unresolved review threads
     created_at: str = ""
+    devin_latest_message: str | None = None  # Latest message from active Devin session
+    acus_consumed: float | None = None  # Total ACUs consumed across all Devin sessions
 
 
 class DashboardLists(BaseModel):
