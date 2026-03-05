@@ -7,7 +7,8 @@ const PAGE_SIZE = 5
 // ── Filter/sort types ──
 
 type SizeFilterValue = 'all' | 'S' | 'M' | 'L'
-type SortByValue = 'created_on' | 'last_updated' | 'status' | 'size'
+type AcuFilterValue = 'all' | 'none' | 'low' | 'moderate' | 'high'
+type SortByValue = 'created_on' | 'last_updated' | 'status' | 'size' | 'acu'
 type SortOrder = 'asc' | 'desc'
 
 const SIZE_ORDER: Record<string, number> = {
@@ -47,6 +48,7 @@ function applyFiltersAndSort(
   items: IssueItem[],
   sizeFilter: SizeFilterValue,
   statusFilter: string,
+  acuFilter: AcuFilterValue,
   sortBy: SortByValue,
   sortOrder: SortOrder,
 ): IssueItem[] {
@@ -58,6 +60,18 @@ function applyFiltersAndSort(
   }
   if (statusFilter !== 'all') {
     result = result.filter((i) => i.status_label === statusFilter)
+  }
+  if (acuFilter !== 'all') {
+    result = result.filter((i) => {
+      const acus = i.acus_consumed
+      switch (acuFilter) {
+        case 'none': return acus === null || acus === undefined
+        case 'low': return acus !== null && acus !== undefined && acus < ACU_THRESHOLD_LOW
+        case 'moderate': return acus !== null && acus !== undefined && acus >= ACU_THRESHOLD_LOW && acus <= ACU_THRESHOLD_HIGH
+        case 'high': return acus !== null && acus !== undefined && acus > ACU_THRESHOLD_HIGH
+        default: return true
+      }
+    })
   }
 
   result = [...result].sort((a, b) => {
@@ -85,6 +99,12 @@ function applyFiltersAndSort(
         const aSize = a.sizing_label ? (SIZE_ORDER[a.sizing_label] ?? 99) : 99
         const bSize = b.sizing_label ? (SIZE_ORDER[b.sizing_label] ?? 99) : 99
         cmp = aSize - bSize
+        break
+      }
+      case 'acu': {
+        const aAcu = a.acus_consumed ?? -1
+        const bAcu = b.acus_consumed ?? -1
+        cmp = aAcu - bAcu
         break
       }
     }
@@ -488,6 +508,7 @@ function SortDropdown({
     { value: 'last_updated', label: 'Last updated' },
     { value: 'status', label: 'Status' },
     { value: 'size', label: 'Size' },
+    { value: 'acu', label: 'ACU usage' },
   ]
 
   const isTimeBased = sortBy === 'created_on' || sortBy === 'last_updated'
@@ -546,11 +567,58 @@ function SortDropdown({
   )
 }
 
+function AcuDropdown({
+  value,
+  onChange,
+}: {
+  value: AcuFilterValue
+  onChange: (v: AcuFilterValue) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useClickOutside(ref, () => setOpen(false))
+
+  const options: { value: AcuFilterValue; label: string }[] = [
+    { value: 'all', label: 'All ACU' },
+    { value: 'none', label: 'No usage' },
+    { value: 'low', label: `Low (< ${ACU_THRESHOLD_LOW})` },
+    { value: 'moderate', label: `Medium (${ACU_THRESHOLD_LOW}–${ACU_THRESHOLD_HIGH})` },
+    { value: 'high', label: `High (> ${ACU_THRESHOLD_HIGH})` },
+  ]
+
+  const displayLabel = value === 'all' ? 'ACU' : options.find((o) => o.value === value)?.label ?? value
+
+  return (
+    <div className="relative" ref={ref}>
+      <DropdownButton
+        label={displayLabel}
+        isOpen={open}
+        onToggle={() => setOpen(!open)}
+        isFiltered={value !== 'all'}
+      />
+      {open && (
+        <div className="absolute right-0 z-10 mt-1 w-44 rounded-md border border-gray-200 bg-white py-1 shadow-lg">
+          {options.map((opt) => (
+            <DropdownOption
+              key={opt.value}
+              label={opt.label}
+              selected={value === opt.value}
+              onClick={() => { onChange(opt.value); setOpen(false) }}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function FilterSortControls({
   sizeFilter,
   onSizeFilter,
   statusFilter,
   onStatusFilter,
+  acuFilter,
+  onAcuFilter,
   sortBy,
   onSortBy,
   sortOrder,
@@ -561,6 +629,8 @@ function FilterSortControls({
   onSizeFilter: (v: SizeFilterValue) => void
   statusFilter: string
   onStatusFilter: (v: string) => void
+  acuFilter: AcuFilterValue
+  onAcuFilter: (v: AcuFilterValue) => void
   sortBy: SortByValue
   onSortBy: (v: SortByValue) => void
   sortOrder: SortOrder
@@ -571,6 +641,7 @@ function FilterSortControls({
     <div className="flex items-center gap-2">
       <LabelDropdown value={sizeFilter} onChange={onSizeFilter} />
       <StatusDropdown value={statusFilter} onChange={onStatusFilter} statuses={statuses} />
+      <AcuDropdown value={acuFilter} onChange={onAcuFilter} />
       <SortDropdown sortBy={sortBy} sortOrder={sortOrder} onSortByChange={onSortBy} onSortOrderChange={onSortOrder} />
     </div>
   )
@@ -610,18 +681,20 @@ function App() {
   const [attentionStatusFilter, setAttentionStatusFilter] = useState('all')
   const [attentionSortBy, setAttentionSortBy] = useState<SortByValue>('created_on')
   const [attentionSortOrder, setAttentionSortOrder] = useState<SortOrder>('desc')
+  const [attentionAcuFilter, setAttentionAcuFilter] = useState<AcuFilterValue>('all')
   const [progressSizeFilter, setProgressSizeFilter] = useState<SizeFilterValue>('all')
   const [progressStatusFilter, setProgressStatusFilter] = useState('all')
   const [progressSortBy, setProgressSortBy] = useState<SortByValue>('created_on')
   const [progressSortOrder, setProgressSortOrder] = useState<SortOrder>('desc')
+  const [progressAcuFilter, setProgressAcuFilter] = useState<AcuFilterValue>('all')
   const { data: metrics, isLoading: metricsLoading, error: metricsError } = useMetrics(days)
   const { data: lists, isLoading: listsLoading, error: listsError } = useLists()
 
   const filteredAttention = lists
-    ? applyFiltersAndSort(lists.needs_attention, attentionSizeFilter, attentionStatusFilter, attentionSortBy, attentionSortOrder)
+    ? applyFiltersAndSort(lists.needs_attention, attentionSizeFilter, attentionStatusFilter, attentionAcuFilter, attentionSortBy, attentionSortOrder)
     : []
   const filteredProgress = lists
-    ? applyFiltersAndSort(lists.in_progress, progressSizeFilter, progressStatusFilter, progressSortBy, progressSortOrder)
+    ? applyFiltersAndSort(lists.in_progress, progressSizeFilter, progressStatusFilter, progressAcuFilter, progressSortBy, progressSortOrder)
     : []
 
   const attentionTotal = Math.max(1, Math.ceil(filteredAttention.length / PAGE_SIZE))
@@ -638,11 +711,11 @@ function App() {
   // Reset pages when filter/sort changes
   useEffect(() => {
     setAttentionPage(1)
-  }, [attentionSizeFilter, attentionStatusFilter, attentionSortBy, attentionSortOrder])
+  }, [attentionSizeFilter, attentionStatusFilter, attentionAcuFilter, attentionSortBy, attentionSortOrder])
 
   useEffect(() => {
     setProgressPage(1)
-  }, [progressSizeFilter, progressStatusFilter, progressSortBy, progressSortOrder])
+  }, [progressSizeFilter, progressStatusFilter, progressAcuFilter, progressSortBy, progressSortOrder])
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -711,7 +784,7 @@ function App() {
                 <h2 className="text-base font-semibold text-gray-900">Needs Attention</h2>
                 {lists && lists.needs_attention.length > 0 && (
                     <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-100 px-1.5 text-xs font-medium text-amber-800">
-                      {filteredAttention.length}{(attentionSizeFilter !== 'all' || attentionStatusFilter !== 'all') ? ` / ${lists.needs_attention.length}` : ''}
+                      {filteredAttention.length}{(attentionSizeFilter !== 'all' || attentionStatusFilter !== 'all' || attentionAcuFilter !== 'all') ? ` / ${lists.needs_attention.length}` : ''}
                     </span>
                 )}
               </div>
@@ -721,6 +794,8 @@ function App() {
                   onSizeFilter={setAttentionSizeFilter}
                   statusFilter={attentionStatusFilter}
                   onStatusFilter={setAttentionStatusFilter}
+                  acuFilter={attentionAcuFilter}
+                  onAcuFilter={setAttentionAcuFilter}
                   sortBy={attentionSortBy}
                   onSortBy={setAttentionSortBy}
                   sortOrder={attentionSortOrder}
@@ -772,7 +847,7 @@ function App() {
                 <h2 className="text-base font-semibold text-gray-900">In Progress</h2>
                 {lists && lists.in_progress.length > 0 && (
                     <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-sky-100 px-1.5 text-xs font-medium text-sky-800">
-                      {filteredProgress.length}{(progressSizeFilter !== 'all' || progressStatusFilter !== 'all') ? ` / ${lists.in_progress.length}` : ''}
+                      {filteredProgress.length}{(progressSizeFilter !== 'all' || progressStatusFilter !== 'all' || progressAcuFilter !== 'all') ? ` / ${lists.in_progress.length}` : ''}
                     </span>
                 )}
               </div>
@@ -782,6 +857,8 @@ function App() {
                   onSizeFilter={setProgressSizeFilter}
                   statusFilter={progressStatusFilter}
                   onStatusFilter={setProgressStatusFilter}
+                  acuFilter={progressAcuFilter}
+                  onAcuFilter={setProgressAcuFilter}
                   sortBy={progressSortBy}
                   onSortBy={setProgressSortBy}
                   sortOrder={progressSortOrder}
