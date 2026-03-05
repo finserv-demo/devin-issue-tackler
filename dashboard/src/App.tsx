@@ -4,10 +4,10 @@ import type { MetricCard as MetricCardType, IssueItem } from './api/types'
 
 const PAGE_SIZE = 5
 
-// ── Size filter/sort types ──
+// ── Filter/sort types ──
 
 type SizeFilterValue = 'all' | 'S' | 'M' | 'L'
-type SizeSortValue = 'none' | 'asc' | 'desc'
+type SortDirection = 'none' | 'asc' | 'desc'
 
 const SIZE_ORDER: Record<string, number> = {
   'devin:small': 1,
@@ -15,26 +15,62 @@ const SIZE_ORDER: Record<string, number> = {
   'devin:large': 3,
 }
 
-function filterAndSortBySize(
+const STATUS_ORDER: Record<string, number> = {
+  'devin:escalated': 0,
+  'devin:pr-ready': 1,
+  'devin:triaged': 2,
+  'devin:triage': 0,
+  'devin:implement': 1,
+  'devin:pr-in-progress': 2,
+}
+
+const ATTENTION_STATUSES = [
+  { value: 'devin:escalated', label: 'Escalated' },
+  { value: 'devin:pr-ready', label: 'PR Ready' },
+  { value: 'devin:triaged', label: 'Awaiting Input' },
+] as const
+
+const PROGRESS_STATUSES = [
+  { value: 'devin:triage', label: 'Triaging' },
+  { value: 'devin:implement', label: 'Implementing' },
+  { value: 'devin:pr-in-progress', label: 'PR In Progress' },
+] as const
+
+function applyFiltersAndSorts(
   items: IssueItem[],
-  filter: SizeFilterValue,
-  sort: SizeSortValue,
+  sizeFilter: SizeFilterValue,
+  sizeSort: SortDirection,
+  statusFilter: string,
+  statusSort: SortDirection,
 ): IssueItem[] {
-  const FILTER_TO_LABEL: Record<string, string> = {
+  const SIZE_FILTER_TO_LABEL: Record<string, string> = {
     S: 'devin:small',
     M: 'devin:medium',
     L: 'devin:large',
   }
   let result = items
-  if (filter !== 'all') {
-    const target = FILTER_TO_LABEL[filter]
+  if (sizeFilter !== 'all') {
+    const target = SIZE_FILTER_TO_LABEL[sizeFilter]
     result = result.filter((i) => i.sizing_label === target)
   }
-  if (sort !== 'none') {
+  if (statusFilter !== 'all') {
+    result = result.filter((i) => i.status_label === statusFilter)
+  }
+  // Apply sorts — status sort first (primary), then size sort (secondary) if both active
+  if (sizeSort !== 'none' || statusSort !== 'none') {
     result = [...result].sort((a, b) => {
-      const aOrder = a.sizing_label ? (SIZE_ORDER[a.sizing_label] ?? 99) : 99
-      const bOrder = b.sizing_label ? (SIZE_ORDER[b.sizing_label] ?? 99) : 99
-      return sort === 'asc' ? aOrder - bOrder : bOrder - aOrder
+      if (statusSort !== 'none') {
+        const aStatus = STATUS_ORDER[a.status_label] ?? 99
+        const bStatus = STATUS_ORDER[b.status_label] ?? 99
+        const statusCmp = statusSort === 'asc' ? aStatus - bStatus : bStatus - aStatus
+        if (statusCmp !== 0) return statusCmp
+      }
+      if (sizeSort !== 'none') {
+        const aSize = a.sizing_label ? (SIZE_ORDER[a.sizing_label] ?? 99) : 99
+        const bSize = b.sizing_label ? (SIZE_ORDER[b.sizing_label] ?? 99) : 99
+        return sizeSort === 'asc' ? aSize - bSize : bSize - aSize
+      }
+      return 0
     })
   }
   return result
@@ -191,37 +227,59 @@ function EmptyState({ message }: { message: string }) {
   )
 }
 
-function SizeControls({
-  filter,
-  onFilter,
-  sort,
-  onSort,
-}: {
-  filter: SizeFilterValue
-  onFilter: (v: SizeFilterValue) => void
-  sort: SizeSortValue
-  onSort: (v: SizeSortValue) => void
-}) {
-  const sizes: SizeFilterValue[] = ['all', 'S', 'M', 'L']
-  const nextSort: Record<SizeSortValue, SizeSortValue> = {
+function SortButton({ label, sort, onSort }: { label: string; sort: SortDirection; onSort: (v: SortDirection) => void }) {
+  const nextSort: Record<SortDirection, SortDirection> = {
     none: 'asc',
     asc: 'desc',
     desc: 'none',
   }
-  const sortLabel: Record<SizeSortValue, string> = {
-    none: 'Size',
-    asc: 'Size ↑',
-    desc: 'Size ↓',
-  }
+  const arrow: Record<SortDirection, string> = { none: '', asc: ' ↑', desc: ' ↓' }
   return (
-    <div className="flex items-center gap-2">
+    <button
+      onClick={() => onSort(nextSort[sort])}
+      className={`rounded-md px-2 py-0.5 text-xs font-medium transition-colors ${
+        sort !== 'none'
+          ? 'bg-gray-200 text-gray-900'
+          : 'text-gray-500 hover:text-gray-700'
+      }`}
+    >
+      {label}{arrow[sort]}
+    </button>
+  )
+}
+
+function FilterSortControls({
+  sizeFilter,
+  onSizeFilter,
+  sizeSort,
+  onSizeSort,
+  statusFilter,
+  onStatusFilter,
+  statusSort,
+  onStatusSort,
+  statuses,
+}: {
+  sizeFilter: SizeFilterValue
+  onSizeFilter: (v: SizeFilterValue) => void
+  sizeSort: SortDirection
+  onSizeSort: (v: SortDirection) => void
+  statusFilter: string
+  onStatusFilter: (v: string) => void
+  statusSort: SortDirection
+  onStatusSort: (v: SortDirection) => void
+  statuses: readonly { value: string; label: string }[]
+}) {
+  const sizes: SizeFilterValue[] = ['all', 'S', 'M', 'L']
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {/* Size filter pills */}
       <div className="flex items-center gap-1 rounded-lg bg-gray-100 p-0.5">
         {sizes.map((s) => (
           <button
             key={s}
-            onClick={() => onFilter(s)}
+            onClick={() => onSizeFilter(s)}
             className={`rounded-md px-2 py-0.5 text-xs font-medium transition-colors ${
-              filter === s
+              sizeFilter === s
                 ? 'bg-white text-gray-900 shadow-sm'
                 : 'text-gray-500 hover:text-gray-700'
             }`}
@@ -230,16 +288,34 @@ function SizeControls({
           </button>
         ))}
       </div>
-      <button
-        onClick={() => onSort(nextSort[sort])}
-        className={`rounded-md px-2 py-0.5 text-xs font-medium transition-colors ${
-          sort !== 'none'
-            ? 'bg-gray-200 text-gray-900'
-            : 'text-gray-500 hover:text-gray-700'
-        }`}
-      >
-        {sortLabel[sort]}
-      </button>
+      <SortButton label="Size" sort={sizeSort} onSort={onSizeSort} />
+      {/* Status filter pills */}
+      <div className="flex items-center gap-1 rounded-lg bg-gray-100 p-0.5">
+        <button
+          onClick={() => onStatusFilter('all')}
+          className={`rounded-md px-2 py-0.5 text-xs font-medium transition-colors ${
+            statusFilter === 'all'
+              ? 'bg-white text-gray-900 shadow-sm'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          All
+        </button>
+        {statuses.map((st) => (
+          <button
+            key={st.value}
+            onClick={() => onStatusFilter(st.value)}
+            className={`rounded-md px-2 py-0.5 text-xs font-medium transition-colors ${
+              statusFilter === st.value
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {st.label}
+          </button>
+        ))}
+      </div>
+      <SortButton label="Status" sort={statusSort} onSort={onStatusSort} />
     </div>
   )
 }
@@ -275,17 +351,21 @@ function App() {
   const [attentionPage, setAttentionPage] = useState(1)
   const [progressPage, setProgressPage] = useState(1)
   const [attentionSizeFilter, setAttentionSizeFilter] = useState<SizeFilterValue>('all')
-  const [attentionSizeSort, setAttentionSizeSort] = useState<SizeSortValue>('none')
+  const [attentionSizeSort, setAttentionSizeSort] = useState<SortDirection>('none')
+  const [attentionStatusFilter, setAttentionStatusFilter] = useState('all')
+  const [attentionStatusSort, setAttentionStatusSort] = useState<SortDirection>('none')
   const [progressSizeFilter, setProgressSizeFilter] = useState<SizeFilterValue>('all')
-  const [progressSizeSort, setProgressSizeSort] = useState<SizeSortValue>('none')
+  const [progressSizeSort, setProgressSizeSort] = useState<SortDirection>('none')
+  const [progressStatusFilter, setProgressStatusFilter] = useState('all')
+  const [progressStatusSort, setProgressStatusSort] = useState<SortDirection>('none')
   const { data: metrics, isLoading: metricsLoading, error: metricsError } = useMetrics(days)
   const { data: lists, isLoading: listsLoading, error: listsError } = useLists()
 
   const filteredAttention = lists
-    ? filterAndSortBySize(lists.needs_attention, attentionSizeFilter, attentionSizeSort)
+    ? applyFiltersAndSorts(lists.needs_attention, attentionSizeFilter, attentionSizeSort, attentionStatusFilter, attentionStatusSort)
     : []
   const filteredProgress = lists
-    ? filterAndSortBySize(lists.in_progress, progressSizeFilter, progressSizeSort)
+    ? applyFiltersAndSorts(lists.in_progress, progressSizeFilter, progressSizeSort, progressStatusFilter, progressStatusSort)
     : []
 
   const attentionTotal = Math.max(1, Math.ceil(filteredAttention.length / PAGE_SIZE))
@@ -302,11 +382,11 @@ function App() {
   // Reset pages when filter/sort changes
   useEffect(() => {
     setAttentionPage(1)
-  }, [attentionSizeFilter, attentionSizeSort])
+  }, [attentionSizeFilter, attentionSizeSort, attentionStatusFilter, attentionStatusSort])
 
   useEffect(() => {
     setProgressPage(1)
-  }, [progressSizeFilter, progressSizeSort])
+  }, [progressSizeFilter, progressSizeSort, progressStatusFilter, progressStatusSort])
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -375,16 +455,21 @@ function App() {
                 <h2 className="text-base font-semibold text-gray-900">Needs Attention</h2>
                 {lists && lists.needs_attention.length > 0 && (
                     <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-100 px-1.5 text-xs font-medium text-amber-800">
-                      {filteredAttention.length}{attentionSizeFilter !== 'all' ? ` / ${lists.needs_attention.length}` : ''}
+                      {filteredAttention.length}{(attentionSizeFilter !== 'all' || attentionStatusFilter !== 'all') ? ` / ${lists.needs_attention.length}` : ''}
                     </span>
                 )}
               </div>
               {lists && lists.needs_attention.length > 0 && (
-                <SizeControls
-                  filter={attentionSizeFilter}
-                  onFilter={setAttentionSizeFilter}
-                  sort={attentionSizeSort}
-                  onSort={setAttentionSizeSort}
+                <FilterSortControls
+                  sizeFilter={attentionSizeFilter}
+                  onSizeFilter={setAttentionSizeFilter}
+                  sizeSort={attentionSizeSort}
+                  onSizeSort={setAttentionSizeSort}
+                  statusFilter={attentionStatusFilter}
+                  onStatusFilter={setAttentionStatusFilter}
+                  statusSort={attentionStatusSort}
+                  onStatusSort={setAttentionStatusSort}
+                  statuses={ATTENTION_STATUSES}
                 />
               )}
             </div>
@@ -404,7 +489,7 @@ function App() {
               <EmptyState message="Nothing needs your attention right now." />
             )}
             {lists && lists.needs_attention.length > 0 && filteredAttention.length === 0 && (
-              <EmptyState message="No issues match the selected size filter." />
+              <EmptyState message="No issues match the selected filters." />
             )}
             {filteredAttention.length > 0 && (
               <>
@@ -431,16 +516,21 @@ function App() {
                 <h2 className="text-base font-semibold text-gray-900">In Progress</h2>
                 {lists && lists.in_progress.length > 0 && (
                     <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-sky-100 px-1.5 text-xs font-medium text-sky-800">
-                      {filteredProgress.length}{progressSizeFilter !== 'all' ? ` / ${lists.in_progress.length}` : ''}
+                      {filteredProgress.length}{(progressSizeFilter !== 'all' || progressStatusFilter !== 'all') ? ` / ${lists.in_progress.length}` : ''}
                     </span>
                 )}
               </div>
               {lists && lists.in_progress.length > 0 && (
-                <SizeControls
-                  filter={progressSizeFilter}
-                  onFilter={setProgressSizeFilter}
-                  sort={progressSizeSort}
-                  onSort={setProgressSizeSort}
+                <FilterSortControls
+                  sizeFilter={progressSizeFilter}
+                  onSizeFilter={setProgressSizeFilter}
+                  sizeSort={progressSizeSort}
+                  onSizeSort={setProgressSizeSort}
+                  statusFilter={progressStatusFilter}
+                  onStatusFilter={setProgressStatusFilter}
+                  statusSort={progressStatusSort}
+                  onStatusSort={setProgressStatusSort}
+                  statuses={PROGRESS_STATUSES}
                 />
               )}
             </div>
@@ -460,7 +550,7 @@ function App() {
               <EmptyState message="No issues being worked on right now." />
             )}
             {lists && lists.in_progress.length > 0 && filteredProgress.length === 0 && (
-              <EmptyState message="No issues match the selected size filter." />
+              <EmptyState message="No issues match the selected filters." />
             )}
             {filteredProgress.length > 0 && (
               <>
