@@ -221,8 +221,8 @@ function ReviewThreadCount({ count }: { count: number | null }) {
 
 // ── ACU badge thresholds (easily adjustable) ──
 
-const ACU_THRESHOLD_LOW = 2
-const ACU_THRESHOLD_HIGH = 5
+const ACU_THRESHOLD_LOW = 5
+const ACU_THRESHOLD_HIGH = 10
 
 const ACU_STYLES = {
   low: { bg: 'bg-emerald-100', text: 'text-emerald-800' },
