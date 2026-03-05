@@ -10,6 +10,7 @@ class MetricCard(BaseModel):
     value: str
     subtitle: str = ""  # e.g. "+12% w/w" or "-5% w/w"
     sentiment: str = "neutral"  # "positive", "negative", or "neutral"
+    link_url: str = ""  # optional URL to navigate to when the card is clicked
 
 
 class DashboardMetrics(BaseModel):

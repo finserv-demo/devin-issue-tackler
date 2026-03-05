@@ -3,6 +3,7 @@ export interface MetricCard {
   value: string
   subtitle: string
   sentiment: 'positive' | 'negative' | 'neutral'
+  link_url?: string
 }
 
 export interface DashboardMetrics {
