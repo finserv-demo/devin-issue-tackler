@@ -4,6 +4,42 @@ import type { MetricCard as MetricCardType, IssueItem } from './api/types'
 
 const PAGE_SIZE = 5
 
+// ── Size filter/sort types ──
+
+type SizeFilterValue = 'all' | 'S' | 'M' | 'L'
+type SizeSortValue = 'none' | 'asc' | 'desc'
+
+const SIZE_ORDER: Record<string, number> = {
+  'devin:small': 1,
+  'devin:medium': 2,
+  'devin:large': 3,
+}
+
+function filterAndSortBySize(
+  items: IssueItem[],
+  filter: SizeFilterValue,
+  sort: SizeSortValue,
+): IssueItem[] {
+  const FILTER_TO_LABEL: Record<string, string> = {
+    S: 'devin:small',
+    M: 'devin:medium',
+    L: 'devin:large',
+  }
+  let result = items
+  if (filter !== 'all') {
+    const target = FILTER_TO_LABEL[filter]
+    result = result.filter((i) => i.sizing_label === target)
+  }
+  if (sort !== 'none') {
+    result = [...result].sort((a, b) => {
+      const aOrder = a.sizing_label ? (SIZE_ORDER[a.sizing_label] ?? 99) : 99
+      const bOrder = b.sizing_label ? (SIZE_ORDER[b.sizing_label] ?? 99) : 99
+      return sort === 'asc' ? aOrder - bOrder : bOrder - aOrder
+    })
+  }
+  return result
+}
+
 // ── Sizing badge colors ──
 
 const SIZING_COLORS: Record<string, { bg: string; text: string; label: string }> = {
@@ -155,6 +191,59 @@ function EmptyState({ message }: { message: string }) {
   )
 }
 
+function SizeControls({
+  filter,
+  onFilter,
+  sort,
+  onSort,
+}: {
+  filter: SizeFilterValue
+  onFilter: (v: SizeFilterValue) => void
+  sort: SizeSortValue
+  onSort: (v: SizeSortValue) => void
+}) {
+  const sizes: SizeFilterValue[] = ['all', 'S', 'M', 'L']
+  const nextSort: Record<SizeSortValue, SizeSortValue> = {
+    none: 'asc',
+    asc: 'desc',
+    desc: 'none',
+  }
+  const sortLabel: Record<SizeSortValue, string> = {
+    none: 'Size',
+    asc: 'Size ↑',
+    desc: 'Size ↓',
+  }
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1 rounded-lg bg-gray-100 p-0.5">
+        {sizes.map((s) => (
+          <button
+            key={s}
+            onClick={() => onFilter(s)}
+            className={`rounded-md px-2 py-0.5 text-xs font-medium transition-colors ${
+              filter === s
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {s === 'all' ? 'All' : s}
+          </button>
+        ))}
+      </div>
+      <button
+        onClick={() => onSort(nextSort[sort])}
+        className={`rounded-md px-2 py-0.5 text-xs font-medium transition-colors ${
+          sort !== 'none'
+            ? 'bg-gray-200 text-gray-900'
+            : 'text-gray-500 hover:text-gray-700'
+        }`}
+      >
+        {sortLabel[sort]}
+      </button>
+    </div>
+  )
+}
+
 function Pagination({ current, total, onPage }: { current: number; total: number; onPage: (p: number) => void }) {
   return (
     <div className="mt-3 flex items-center justify-center gap-2">
@@ -185,11 +274,22 @@ function App() {
   const [days, setDays] = useState(7)
   const [attentionPage, setAttentionPage] = useState(1)
   const [progressPage, setProgressPage] = useState(1)
+  const [attentionSizeFilter, setAttentionSizeFilter] = useState<SizeFilterValue>('all')
+  const [attentionSizeSort, setAttentionSizeSort] = useState<SizeSortValue>('none')
+  const [progressSizeFilter, setProgressSizeFilter] = useState<SizeFilterValue>('all')
+  const [progressSizeSort, setProgressSizeSort] = useState<SizeSortValue>('none')
   const { data: metrics, isLoading: metricsLoading, error: metricsError } = useMetrics(days)
   const { data: lists, isLoading: listsLoading, error: listsError } = useLists()
 
-  const attentionTotal = lists ? Math.ceil(lists.needs_attention.length / PAGE_SIZE) : 1
-  const progressTotal = lists ? Math.ceil(lists.in_progress.length / PAGE_SIZE) : 1
+  const filteredAttention = lists
+    ? filterAndSortBySize(lists.needs_attention, attentionSizeFilter, attentionSizeSort)
+    : []
+  const filteredProgress = lists
+    ? filterAndSortBySize(lists.in_progress, progressSizeFilter, progressSizeSort)
+    : []
+
+  const attentionTotal = Math.max(1, Math.ceil(filteredAttention.length / PAGE_SIZE))
+  const progressTotal = Math.max(1, Math.ceil(filteredProgress.length / PAGE_SIZE))
 
   useEffect(() => {
     if (attentionPage > attentionTotal) setAttentionPage(Math.max(1, attentionTotal))
@@ -198,6 +298,15 @@ function App() {
   useEffect(() => {
     if (progressPage > progressTotal) setProgressPage(Math.max(1, progressTotal))
   }, [progressPage, progressTotal])
+
+  // Reset pages when filter/sort changes
+  useEffect(() => {
+    setAttentionPage(1)
+  }, [attentionSizeFilter, attentionSizeSort])
+
+  useEffect(() => {
+    setProgressPage(1)
+  }, [progressSizeFilter, progressSizeSort])
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -261,12 +370,22 @@ function App() {
         <div className="mt-8 space-y-8">
           {/* Needs Attention */}
           <section>
-            <div className="mb-3 flex items-center gap-2">
-              <h2 className="text-base font-semibold text-gray-900">Needs Attention</h2>
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-semibold text-gray-900">Needs Attention</h2>
+                {lists && lists.needs_attention.length > 0 && (
+                  <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-100 px-1.5 text-xs font-medium text-amber-800">
+                    {filteredAttention.length}
+                  </span>
+                )}
+              </div>
               {lists && lists.needs_attention.length > 0 && (
-                <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-100 px-1.5 text-xs font-medium text-amber-800">
-                  {lists.needs_attention.length}
-                </span>
+                <SizeControls
+                  filter={attentionSizeFilter}
+                  onFilter={setAttentionSizeFilter}
+                  sort={attentionSizeSort}
+                  onSort={setAttentionSizeSort}
+                />
               )}
             </div>
             {listsLoading && (
@@ -284,17 +403,20 @@ function App() {
             {lists && lists.needs_attention.length === 0 && (
               <EmptyState message="Nothing needs your attention right now." />
             )}
-            {lists && lists.needs_attention.length > 0 && (
+            {lists && lists.needs_attention.length > 0 && filteredAttention.length === 0 && (
+              <EmptyState message="No issues match the selected size filter." />
+            )}
+            {filteredAttention.length > 0 && (
               <>
                 <div className="space-y-2">
-                  {lists.needs_attention.slice((attentionPage - 1) * PAGE_SIZE, attentionPage * PAGE_SIZE).map((issue) => (
+                  {filteredAttention.slice((attentionPage - 1) * PAGE_SIZE, attentionPage * PAGE_SIZE).map((issue) => (
                     <IssueRow key={issue.number} issue={issue} />
                   ))}
                 </div>
-                {lists.needs_attention.length > PAGE_SIZE && (
+                {filteredAttention.length > PAGE_SIZE && (
                   <Pagination
                     current={attentionPage}
-                    total={Math.ceil(lists.needs_attention.length / PAGE_SIZE)}
+                    total={Math.ceil(filteredAttention.length / PAGE_SIZE)}
                     onPage={setAttentionPage}
                   />
                 )}
@@ -304,12 +426,22 @@ function App() {
 
           {/* In Progress */}
           <section>
-            <div className="mb-3 flex items-center gap-2">
-              <h2 className="text-base font-semibold text-gray-900">In Progress</h2>
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-semibold text-gray-900">In Progress</h2>
+                {lists && lists.in_progress.length > 0 && (
+                  <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-sky-100 px-1.5 text-xs font-medium text-sky-800">
+                    {filteredProgress.length}
+                  </span>
+                )}
+              </div>
               {lists && lists.in_progress.length > 0 && (
-                <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-sky-100 px-1.5 text-xs font-medium text-sky-800">
-                  {lists.in_progress.length}
-                </span>
+                <SizeControls
+                  filter={progressSizeFilter}
+                  onFilter={setProgressSizeFilter}
+                  sort={progressSizeSort}
+                  onSort={setProgressSizeSort}
+                />
               )}
             </div>
             {listsLoading && (
@@ -327,17 +459,20 @@ function App() {
             {lists && lists.in_progress.length === 0 && (
               <EmptyState message="No issues being worked on right now." />
             )}
-            {lists && lists.in_progress.length > 0 && (
+            {lists && lists.in_progress.length > 0 && filteredProgress.length === 0 && (
+              <EmptyState message="No issues match the selected size filter." />
+            )}
+            {filteredProgress.length > 0 && (
               <>
                 <div className="space-y-2">
-                  {lists.in_progress.slice((progressPage - 1) * PAGE_SIZE, progressPage * PAGE_SIZE).map((issue) => (
+                  {filteredProgress.slice((progressPage - 1) * PAGE_SIZE, progressPage * PAGE_SIZE).map((issue) => (
                     <IssueRow key={issue.number} issue={issue} />
                   ))}
                 </div>
-                {lists.in_progress.length > PAGE_SIZE && (
+                {filteredProgress.length > PAGE_SIZE && (
                   <Pagination
                     current={progressPage}
-                    total={Math.ceil(lists.in_progress.length / PAGE_SIZE)}
+                    total={Math.ceil(filteredProgress.length / PAGE_SIZE)}
                     onPage={setProgressPage}
                   />
                 )}
