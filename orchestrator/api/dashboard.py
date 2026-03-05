@@ -19,6 +19,7 @@ from orchestrator.schemas.dashboard import (
     DashboardMetrics,
     IssueItem,
     MetricCard,
+    SizeMetricBreakdown,
 )
 from orchestrator.schemas.devin import DevinSession
 
@@ -588,15 +589,118 @@ async def compute_metrics(settings: Settings, time_window_days: int = 7) -> Dash
         median_subtitle = ""
         median_sentiment = "neutral"
 
-    # 3. % resolved within 1 week
+    # 3. % resolved within threshold (1 week for 7-day view, 1 month for 30-day view)
     # Use ALL done issues (not just current period) for this metric
+    resolution_threshold_seconds = time_window_days * 24 * 3600
     all_times = [t for issue in done_issues if (t := _resolution_time(issue)) is not None]
     if all_times:
-        within_week = sum(1 for t in all_times if t.total_seconds() <= 7 * 24 * 3600)
-        pct_within_week = math.floor((within_week / len(all_times)) * 100)
-        week_str = f"{pct_within_week}%"
+        within_threshold = sum(1 for t in all_times if t.total_seconds() <= resolution_threshold_seconds)
+        pct_within = math.floor((within_threshold / len(all_times)) * 100)
+        week_str = f"{pct_within}%"
     else:
         week_str = "N/A"
+
+    # 4. Per-size breakdowns for the dedicated metrics page
+    size_display: dict[str | None, str] = {
+        "devin:small": "Small",
+        "devin:medium": "Medium",
+        "devin:large": "Large",
+        None: "Overall",
+    }
+
+    def _build_breakdown(
+        size_label: str | None,
+        current_subset: list[dict],
+        previous_subset: list[dict],
+        all_done_subset: list[dict],
+    ) -> SizeMetricBreakdown:
+        """Compute all 3 metrics for a subset of issues (by size or overall)."""
+        # Issues resolved
+        cur_count = len(current_subset)
+        prev_count = len(previous_subset)
+        if prev_count > 0:
+            pct_chg = ((cur_count - prev_count) / prev_count) * 100
+            wow = "w/w" if time_window_days == 7 else "m/m"
+            s = "+" if pct_chg >= 0 else ""
+            res_subtitle = f"{s}{pct_chg:.0f}% {wow}"
+            res_sentiment = "positive" if pct_chg >= 0 else "negative"
+        else:
+            res_subtitle = ""
+            res_sentiment = "neutral"
+
+        # Median resolution time
+        cur_times = [t for i in current_subset if (t := _resolution_time(i)) is not None]
+        prev_times = [t for i in previous_subset if (t := _resolution_time(i)) is not None]
+
+        if cur_times:
+            cur_times.sort()
+            cur_med = cur_times[len(cur_times) // 2]
+            med_val = _format_duration(cur_med)
+        else:
+            cur_med = None
+            med_val = "N/A"
+
+        if prev_times and cur_med is not None:
+            prev_times.sort()
+            p_med = prev_times[len(prev_times) // 2]
+            if p_med.total_seconds() > 0:
+                m_pct = (
+                    (cur_med.total_seconds() - p_med.total_seconds()) / p_med.total_seconds()
+                ) * 100
+                wow = "w/w" if time_window_days == 7 else "m/m"
+                s = "+" if m_pct >= 0 else ""
+                med_subtitle = f"{s}{m_pct:.0f}% {wow}"
+                med_sentiment = "positive" if m_pct <= 0 else "negative"
+            else:
+                med_subtitle = ""
+                med_sentiment = "neutral"
+        else:
+            med_subtitle = ""
+            med_sentiment = "neutral"
+
+        # % resolved within threshold (1 week for 7-day view, 1 month for 30-day view)
+        all_t = [t for i in all_done_subset if (t := _resolution_time(i)) is not None]
+        if all_t:
+            wk = sum(1 for t in all_t if t.total_seconds() <= resolution_threshold_seconds)
+            pct_wk = math.floor((wk / len(all_t)) * 100)
+            wk_val = f"{pct_wk}%"
+        else:
+            wk_val = "N/A"
+
+        return SizeMetricBreakdown(
+            size_label=size_label,
+            display_name=size_display[size_label],
+            issues_resolved=MetricCard(
+                label=f"Issues Resolved ({period_label})",
+                value=str(cur_count),
+                subtitle=res_subtitle,
+                sentiment=res_sentiment,
+            ),
+            median_resolution_time=MetricCard(
+                label=f"Median Resolution Time ({period_label})",
+                value=med_val,
+                subtitle=med_subtitle,
+                sentiment=med_sentiment,
+            ),
+            resolved_within_one_week=MetricCard(
+                label=f"Resolved Within 1 {'Week' if time_window_days == 7 else 'Month'}",
+                value=wk_val,
+                subtitle="of all issues" if all_t else "",
+            ),
+        )
+
+    breakdowns: list[SizeMetricBreakdown] = []
+    for sz in ("devin:small", "devin:medium", "devin:large", None):
+        if sz is None:
+            # Overall = all issues regardless of sizing label
+            cur_sub = current_resolved
+            prev_sub = previous_resolved
+            all_sub = done_issues
+        else:
+            cur_sub = [i for i in current_resolved if _extract_sizing(i.get("labels", [])) == sz]
+            prev_sub = [i for i in previous_resolved if _extract_sizing(i.get("labels", [])) == sz]
+            all_sub = [i for i in done_issues if _extract_sizing(i.get("labels", [])) == sz]
+        breakdowns.append(_build_breakdown(sz, cur_sub, prev_sub, all_sub))
 
     return DashboardMetrics(
         time_window_days=time_window_days,
@@ -617,10 +721,11 @@ async def compute_metrics(settings: Settings, time_window_days: int = 7) -> Dash
             sentiment=median_sentiment,
         ),
         resolved_within_one_week=MetricCard(
-            label="Resolved Within 1 Week",
+            label=f"Resolved Within 1 {'Week' if time_window_days == 7 else 'Month'}",
             value=week_str,
             subtitle="of all issues",
         ),
+        breakdowns=breakdowns,
     )
 
 

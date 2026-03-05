@@ -6,11 +6,20 @@ export interface MetricCard {
   link_url?: string
 }
 
+export interface SizeMetricBreakdown {
+  size_label: string | null
+  display_name: string
+  issues_resolved: MetricCard
+  median_resolution_time: MetricCard
+  resolved_within_one_week: MetricCard
+}
+
 export interface DashboardMetrics {
   time_window_days: number
   issues_resolved: MetricCard
   median_resolution_time: MetricCard
   resolved_within_one_week: MetricCard
+  breakdowns: SizeMetricBreakdown[]
 }
 
 export interface IssueItem {

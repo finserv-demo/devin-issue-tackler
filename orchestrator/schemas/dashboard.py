@@ -13,6 +13,16 @@ class MetricCard(BaseModel):
     link_url: str = ""  # optional URL to navigate to when the card is clicked
 
 
+class SizeMetricBreakdown(BaseModel):
+    """All 3 metrics computed for a single size bucket (or overall)."""
+
+    size_label: str | None = None  # None = "overall", else "devin:small" / "devin:medium" / "devin:large"
+    display_name: str  # "Overall", "Small", "Medium", "Large"
+    issues_resolved: MetricCard
+    median_resolution_time: MetricCard
+    resolved_within_one_week: MetricCard
+
+
 class DashboardMetrics(BaseModel):
     """Hero metrics for the dashboard."""
 
@@ -20,6 +30,7 @@ class DashboardMetrics(BaseModel):
     issues_resolved: MetricCard
     median_resolution_time: MetricCard
     resolved_within_one_week: MetricCard
+    breakdowns: list[SizeMetricBreakdown] = []  # per-size + overall breakdown for metrics page
 
 
 class IssueItem(BaseModel):
