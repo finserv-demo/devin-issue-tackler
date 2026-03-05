@@ -806,6 +806,8 @@ async def compute_lists(settings: Settings) -> DashboardLists:
 
         # Fetch ACUs via v3 insights endpoint (v1 doesn't return acus_consumed).
         # Collect all session IDs, make one v3 call, then sum per issue.
+        # fetch_sessions_acus returns None on failure / missing creds,
+        # so we can distinguish "no data" from "0 ACUs consumed".
         all_session_ids = [
             s.session_id
             for sessions in session_cache.values()
@@ -814,7 +816,7 @@ async def compute_lists(settings: Settings) -> DashboardLists:
         v3_acus = await devin_client.fetch_sessions_acus(all_session_ids)
 
         for num, sessions in session_cache.items():
-            if not sessions:
+            if not sessions or v3_acus is None:
                 acus_map[num] = None
             else:
                 acus_map[num] = sum(

@@ -272,7 +272,7 @@ class DevinClient:
 
     # ── v3 ACU enrichment ──
 
-    async def fetch_sessions_acus(self, session_ids: list[str]) -> dict[str, float]:
+    async def fetch_sessions_acus(self, session_ids: list[str]) -> dict[str, float] | None:
         """Fetch acus_consumed for sessions via the v3 /sessions/insights endpoint.
 
         The v1 API does not return acus_consumed.  The v3 insights endpoint
@@ -282,11 +282,12 @@ class DevinClient:
             session_ids: Session IDs (without the ``devin-`` prefix).
 
         Returns:
-            Dict mapping session_id → acus_consumed.  Returns an empty dict
-            when v3 credentials are unavailable or on any error.
+            Dict mapping session_id → acus_consumed on success.  Returns
+            ``None`` when v3 credentials are unavailable or on any error,
+            so callers can distinguish "no data" from "0 ACUs consumed".
         """
         if not self._v3_api_key or not self._org_id or not session_ids:
-            return {}
+            return None
 
         v3_headers = {
             "Authorization": f"Bearer {self._v3_api_key}",
@@ -314,7 +315,7 @@ class DevinClient:
                 }
         except Exception:
             logger.warning("Failed to fetch ACU data from v3 insights endpoint", exc_info=True)
-            return {}
+            return None
 
     # ── Internal helpers ──
 
