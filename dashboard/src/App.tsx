@@ -31,11 +31,17 @@ function HeroMetricCard({ metric, accent }: { metric: MetricCardType; accent?: b
         ? 'text-red-600'
         : 'text-gray-500'
 
+  const Wrapper = metric.link_url ? 'a' : 'div'
+  const wrapperProps = metric.link_url
+    ? { href: metric.link_url, target: '_blank' as const, rel: 'noopener noreferrer' }
+    : {}
+
   return (
-    <div
-      className={`rounded-xl border p-5 ${
+    <Wrapper
+      {...wrapperProps}
+      className={`block rounded-xl border p-5 ${
         accent ? 'border-emerald-200 bg-emerald-50' : 'border-gray-200 bg-white'
-      }`}
+      }${metric.link_url ? ' cursor-pointer transition-shadow hover:shadow-md' : ''}`}
     >
       <p className="text-sm font-medium text-gray-500">{metric.label}</p>
       <p className="mt-1 text-3xl font-bold tracking-tight text-gray-900">
@@ -46,7 +52,7 @@ function HeroMetricCard({ metric, accent }: { metric: MetricCardType; accent?: b
           {metric.subtitle}
         </p>
       )}
-    </div>
+    </Wrapper>
   )
 }
 
