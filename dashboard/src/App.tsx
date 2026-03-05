@@ -374,9 +374,9 @@ function App() {
               <div className="flex items-center gap-2">
                 <h2 className="text-base font-semibold text-gray-900">Needs Attention</h2>
                 {lists && lists.needs_attention.length > 0 && (
-                  <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-100 px-1.5 text-xs font-medium text-amber-800">
-                    {filteredAttention.length}
-                  </span>
+                    <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-100 px-1.5 text-xs font-medium text-amber-800">
+                      {filteredAttention.length}{attentionSizeFilter !== 'all' ? ` / ${lists.needs_attention.length}` : ''}
+                    </span>
                 )}
               </div>
               {lists && lists.needs_attention.length > 0 && (
@@ -430,9 +430,9 @@ function App() {
               <div className="flex items-center gap-2">
                 <h2 className="text-base font-semibold text-gray-900">In Progress</h2>
                 {lists && lists.in_progress.length > 0 && (
-                  <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-sky-100 px-1.5 text-xs font-medium text-sky-800">
-                    {filteredProgress.length}
-                  </span>
+                    <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-sky-100 px-1.5 text-xs font-medium text-sky-800">
+                      {filteredProgress.length}{progressSizeFilter !== 'all' ? ` / ${lists.in_progress.length}` : ''}
+                    </span>
                 )}
               </div>
               {lists && lists.in_progress.length > 0 && (
