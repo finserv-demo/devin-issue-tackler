@@ -508,7 +508,7 @@ async def compute_metrics(settings: Settings, time_window_days: int = 7) -> Dash
             sentiment=resolved_sentiment,
             link_url=(
                 f"https://github.com/{repo}/issues"
-                f"?q=is%3Aissue+is%3Aclosed+label%3Adevin%3Adone+closed%3A%3E%3D{current_start.strftime('%Y-%m-%d')}"
+                f"?q=is%3Aissue+is%3Aclosed+label%3A%22devin%3Adone%22+closed%3A%3E%3D{current_start.strftime('%Y-%m-%d')}"
             ),
         ),
         median_resolution_time=MetricCard(
