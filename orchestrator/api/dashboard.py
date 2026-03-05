@@ -406,7 +406,10 @@ async def _get_latest_devin_message(
         page = await devin_client.list_messages(target.session_id)
         if not page.items:
             return None
-        last_msg = page.items[-1].message
+        devin_messages = [m for m in page.items if m.source == "devin"]
+        if not devin_messages:
+            return None
+        last_msg = devin_messages[-1].message
         if len(last_msg) > _LATEST_MESSAGE_MAX_LENGTH:
             return last_msg[:_LATEST_MESSAGE_MAX_LENGTH] + "..."
         return last_msg
