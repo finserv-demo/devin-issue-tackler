@@ -451,6 +451,7 @@ def _issue_to_item(
         ci_status=ci_status,
         unresolved_review_threads=unresolved_review_threads,
         created_at=issue.get("created_at", ""),
+        updated_at=issue.get("updated_at", ""),
         acus_consumed=acus_consumed,
         devin_latest_message=devin_latest_message,
     )
