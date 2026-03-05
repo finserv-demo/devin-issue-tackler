@@ -135,9 +135,29 @@ const STATUS_CTA: Record<string, { bg: string; hoverBg: string; text: string; la
   'devin:escalated': { bg: 'bg-red-600', hoverBg: 'hover:bg-red-700', text: 'text-white', label: 'Review Escalation \u2192' },
 }
 
+// ── Metric tooltip definitions ──
+
+const METRIC_TOOLTIPS: Record<string, string> = {
+  issues_resolved: 'Total issues closed with devin:done in the selected time window.',
+  median_resolution_time: 'Median time from devin:triage label to issue close.',
+  resolved_within_one_week: 'Percentage of all done issues resolved within 7 days of triage.',
+}
+
+function Tooltip({ text, children }: { text: string; children: React.ReactNode }) {
+  return (
+    <span className="group relative inline-flex">
+      {children}
+      <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 -translate-x-1/2 whitespace-nowrap rounded-md bg-gray-900 px-2.5 py-1.5 text-xs text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
+        {text}
+        <span className="absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
+      </span>
+    </span>
+  )
+}
+
 // ── Components ──
 
-function HeroMetricCard({ metric, accent }: { metric: MetricCardType; accent?: boolean }) {
+function HeroMetricCard({ metric, accent, tooltip }: { metric: MetricCardType; accent?: boolean; tooltip?: string }) {
   const sentimentColor =
     metric.sentiment === 'positive'
       ? 'text-emerald-600'
@@ -157,7 +177,15 @@ function HeroMetricCard({ metric, accent }: { metric: MetricCardType; accent?: b
         accent ? 'border-emerald-200 bg-emerald-50' : 'border-gray-200 bg-white'
       }${metric.link_url ? ' cursor-pointer transition-shadow hover:shadow-md' : ''}`}
     >
-      <p className="text-sm font-medium text-gray-500">{metric.label}</p>
+      <p className="text-sm font-medium text-gray-500">
+        {tooltip ? (
+          <Tooltip text={tooltip}>
+            <span className="cursor-help border-b border-dashed border-gray-300">{metric.label}</span>
+          </Tooltip>
+        ) : (
+          metric.label
+        )}
+      </p>
       <p className="mt-1 text-3xl font-bold tracking-tight text-gray-900">
         {metric.value}
       </p>
@@ -671,10 +699,152 @@ function Pagination({ current, total, onPage }: { current: number; total: number
   )
 }
 
+// ── Metrics Page ──
+
+const SIZE_BADGE_STYLES: Record<string, { bg: string; text: string }> = {
+  'devin:small': { bg: 'bg-emerald-100', text: 'text-emerald-800' },
+  'devin:medium': { bg: 'bg-amber-100', text: 'text-amber-800' },
+  'devin:large': { bg: 'bg-red-100', text: 'text-red-800' },
+}
+
+function MetricCell({ metric, bold }: { metric: MetricCardType; bold?: boolean }) {
+  const sentimentColor =
+    metric.sentiment === 'positive'
+      ? 'text-emerald-600'
+      : metric.sentiment === 'negative'
+        ? 'text-red-600'
+        : 'text-gray-400'
+
+  return (
+    <td className={`px-4 py-3 text-center ${bold ? 'font-bold' : ''}`}>
+      <p className={`text-lg ${bold ? 'font-bold' : 'font-semibold'} text-gray-900`}>{metric.value}</p>
+      {metric.subtitle && (
+        <p className={`mt-0.5 text-xs font-medium ${sentimentColor}`}>{metric.subtitle}</p>
+      )}
+    </td>
+  )
+}
+
+function MetricsPage({ onBack }: { onBack: () => void }) {
+  const [days, setDays] = useState(7)
+  const { data: metrics, isLoading, error } = useMetrics(days)
+
+  const COLUMN_KEYS: { key: string; label: string; tooltip: string }[] = [
+    { key: 'issues_resolved', label: 'Issues Resolved', tooltip: METRIC_TOOLTIPS.issues_resolved },
+    { key: 'median_resolution_time', label: 'Median Resolution Time', tooltip: METRIC_TOOLTIPS.median_resolution_time },
+    { key: 'resolved_within_one_week', label: '% Resolved < 1 Week', tooltip: METRIC_TOOLTIPS.resolved_within_one_week },
+  ]
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <header className="border-b border-gray-200 bg-white">
+        <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={onBack}
+              className="rounded-md px-2 py-1 text-sm text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
+            >
+              &larr; Dashboard
+            </button>
+            <div>
+              <h1 className="text-lg font-semibold text-gray-900">Metrics by Issue Size</h1>
+              <p className="text-sm text-gray-500">Performance breakdown across issue sizes</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1 rounded-lg bg-gray-100 p-1">
+            <button
+              onClick={() => setDays(7)}
+              className={`rounded-md px-3 py-1 text-sm font-medium transition-colors ${
+                days === 7
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              7 days
+            </button>
+            <button
+              onClick={() => setDays(30)}
+              className={`rounded-md px-3 py-1 text-sm font-medium transition-colors ${
+                days === 30
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              30 days
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-5xl px-6 py-6">
+        {isLoading && (
+          <div className="h-64 animate-pulse rounded-xl border border-gray-200 bg-gray-100" />
+        )}
+        {error && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            Failed to load metrics. Is the backend running?
+          </div>
+        )}
+        {metrics && metrics.breakdowns.length > 0 && (
+          <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-gray-200 bg-gray-50">
+                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                    Size
+                  </th>
+                  {COLUMN_KEYS.map((col) => (
+                    <th key={col.key} className="px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-gray-500">
+                      <Tooltip text={col.tooltip}>
+                        <span className="cursor-help border-b border-dashed border-gray-300">{col.label}</span>
+                      </Tooltip>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {metrics.breakdowns.map((row) => {
+                  const isOverall = row.size_label === null
+                  const badgeStyle = row.size_label ? SIZE_BADGE_STYLES[row.size_label] : null
+
+                  return (
+                    <tr
+                      key={row.display_name}
+                      className={isOverall ? 'bg-gray-50 border-t-2 border-gray-200' : 'hover:bg-gray-50'}
+                    >
+                      <td className={`px-4 py-3 ${isOverall ? 'font-bold' : ''}`}>
+                        {badgeStyle ? (
+                          <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${badgeStyle.bg} ${badgeStyle.text}`}>
+                            {row.display_name}
+                          </span>
+                        ) : (
+                          <span className="text-sm font-bold text-gray-900">{row.display_name}</span>
+                        )}
+                      </td>
+                      <MetricCell metric={row.issues_resolved} bold={isOverall} />
+                      <MetricCell metric={row.median_resolution_time} bold={isOverall} />
+                      <MetricCell metric={row.resolved_within_one_week} bold={isOverall} />
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {metrics && metrics.breakdowns.length === 0 && (
+          <EmptyState message="No breakdown data available yet." />
+        )}
+      </main>
+    </div>
+  )
+}
+
 // ── Main App ──
 
+type AppView = 'dashboard' | 'metrics'
+
 function App() {
-  const [days, setDays] = useState(7)
+  const [view, setView] = useState<AppView>('dashboard')
   const [attentionPage, setAttentionPage] = useState(1)
   const [progressPage, setProgressPage] = useState(1)
   const [attentionSizeFilter, setAttentionSizeFilter] = useState<SizeFilterValue>('all')
@@ -687,7 +857,7 @@ function App() {
   const [progressSortBy, setProgressSortBy] = useState<SortByValue>('created_on')
   const [progressSortOrder, setProgressSortOrder] = useState<SortOrder>('desc')
   const [progressAcuFilter, setProgressAcuFilter] = useState<AcuFilterValue>('all')
-  const { data: metrics, isLoading: metricsLoading, error: metricsError } = useMetrics(days)
+  const { data: metrics, isLoading: metricsLoading, error: metricsError } = useMetrics(7)
   const { data: lists, isLoading: listsLoading, error: listsError } = useLists()
 
   const filteredAttention = lists
@@ -717,6 +887,10 @@ function App() {
     setProgressPage(1)
   }, [progressSizeFilter, progressStatusFilter, progressAcuFilter, progressSortBy, progressSortOrder])
 
+  if (view === 'metrics') {
+    return <MetricsPage onBack={() => setView('dashboard')} />
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -725,28 +899,6 @@ function App() {
           <div>
             <h1 className="text-lg font-semibold text-gray-900">Issue Tackler</h1>
             <p className="text-sm text-gray-500">Devin automation dashboard</p>
-          </div>
-          <div className="flex items-center gap-1 rounded-lg bg-gray-100 p-1">
-            <button
-              onClick={() => setDays(7)}
-              className={`rounded-md px-3 py-1 text-sm font-medium transition-colors ${
-                days === 7
-                  ? 'bg-white text-gray-900 shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              7 days
-            </button>
-            <button
-              onClick={() => setDays(30)}
-              className={`rounded-md px-3 py-1 text-sm font-medium transition-colors ${
-                days === 30
-                  ? 'bg-white text-gray-900 shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              30 days
-            </button>
           </div>
         </div>
       </header>
@@ -767,11 +919,21 @@ function App() {
             </div>
           )}
           {metrics && (
-            <div className="grid grid-cols-3 gap-4">
-              <HeroMetricCard metric={metrics.issues_resolved} accent />
-              <HeroMetricCard metric={metrics.median_resolution_time} />
-              <HeroMetricCard metric={metrics.resolved_within_one_week} />
-            </div>
+            <>
+              <div className="grid grid-cols-3 gap-4">
+                <HeroMetricCard metric={metrics.issues_resolved} accent tooltip={METRIC_TOOLTIPS.issues_resolved} />
+                <HeroMetricCard metric={metrics.median_resolution_time} tooltip={METRIC_TOOLTIPS.median_resolution_time} />
+                <HeroMetricCard metric={metrics.resolved_within_one_week} tooltip={METRIC_TOOLTIPS.resolved_within_one_week} />
+              </div>
+              <div className="mt-3 text-right">
+                <button
+                  onClick={() => setView('metrics')}
+                  className="text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors"
+                >
+                  View detailed metrics by size &rarr;
+                </button>
+              </div>
+            </>
           )}
         </section>
 

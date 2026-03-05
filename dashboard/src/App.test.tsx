@@ -21,10 +21,11 @@ describe('App', () => {
     expect(screen.getByText('Devin automation dashboard')).toBeInTheDocument()
   })
 
-  it('renders the time window toggle', () => {
+  it('renders loading skeleton for hero metrics', () => {
     renderWithProviders()
-    expect(screen.getByText('7 days')).toBeInTheDocument()
-    expect(screen.getByText('30 days')).toBeInTheDocument()
+    // While metrics are loading, 3 skeleton placeholders are shown
+    const skeletons = document.querySelectorAll('.animate-pulse')
+    expect(skeletons.length).toBeGreaterThanOrEqual(3)
   })
 
   it('renders the list section headers', () => {
