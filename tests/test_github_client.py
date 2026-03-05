@@ -160,16 +160,11 @@ async def test_remove_all_devin_labels(client: GitHubClient, httpx_mock: HTTPXMo
         method="DELETE",
         json=[],
     )
-    httpx_mock.add_response(
-        url=f"{BASE}/issues/42/labels/devin:small",
-        method="DELETE",
-        json=[],
-    )
 
     await client.remove_all_devin_labels(42)
     requests = httpx_mock.get_requests()
-    # 1 GET + 2 DELETEs (only devin: labels, not "bug")
-    assert len(requests) == 3
+    # 1 GET + 1 DELETE (devin:triage removed; devin:small preserved as sizing label)
+    assert len(requests) == 2
 
 
 @pytest.mark.asyncio
