@@ -393,8 +393,12 @@ async def _get_latest_devin_message(
     """
     # Find the most recent active session, or fall back to most recent session
     active_statuses = {"new", "claimed", "running", "resuming"}
-    active = [s for s in sessions if s.status in active_statuses]
-    target = active[0] if active else (sessions[0] if sessions else None)
+    active = sorted(
+        [s for s in sessions if s.status in active_statuses],
+        key=lambda s: s.updated_at,
+        reverse=True,
+    )
+    target = active[0] if active else (max(sessions, key=lambda s: s.updated_at) if sessions else None)
     if target is None:
         return None
 
