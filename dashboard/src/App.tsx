@@ -712,6 +712,7 @@ const SIZE_BADGE_STYLES: Record<string, { bg: string; text: string }> = {
   'devin:small': { bg: 'bg-emerald-100', text: 'text-emerald-800' },
   'devin:medium': { bg: 'bg-amber-100', text: 'text-amber-800' },
   'devin:large': { bg: 'bg-red-100', text: 'text-red-800' },
+  'Unsized': { bg: 'bg-gray-100', text: 'text-gray-600' },
 }
 
 function MetricCell({ metric, bold }: { metric: MetricCardType; bold?: boolean }) {
@@ -816,8 +817,8 @@ function MetricsPage({ onBack }: { onBack: () => void }) {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {metrics.breakdowns.map((row) => {
-                  const isOverall = row.size_label === null
-                  const badgeStyle = row.size_label ? SIZE_BADGE_STYLES[row.size_label] : null
+                  const isOverall = row.display_name === 'Overall'
+                  const badgeStyle = row.size_label ? SIZE_BADGE_STYLES[row.size_label] : SIZE_BADGE_STYLES[row.display_name] ?? null
 
                   return (
                     <tr

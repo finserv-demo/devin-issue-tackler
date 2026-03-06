@@ -172,10 +172,15 @@ class GitHubClient:
         await self.add_label(number, new_label)
 
     async def remove_all_devin_labels(self, number: int) -> None:
-        """Remove all labels that start with 'devin:' from an issue."""
+        """Remove devin status/control labels from an issue.
+
+        Preserves sizing labels (devin:small, devin:medium, devin:large)
+        so that dashboard metrics remain accurate after issue closure.
+        """
+        sizing_labels = {"devin:small", "devin:medium", "devin:large"}
         labels = await self.get_labels(number)
         for label in labels:
-            if label.startswith("devin:"):
+            if label.startswith("devin:") and label not in sizing_labels:
                 await self.remove_label(number, label)
 
     async def ensure_labels_exist(self, labels: dict[str, str]) -> None:
